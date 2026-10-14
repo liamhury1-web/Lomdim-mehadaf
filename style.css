@@ -108,7 +108,7 @@ select{width:100%;min-height:44px;border:1.5px solid var(--line);border-radius:1
 input[type=checkbox]{width:20px;height:20px;accent-color:var(--ink)}
 .bi{display:flex;flex-direction:column;gap:2px}
 .bi .tr{font-size:.82em;font-weight:600;color:var(--muted)}
-.reading p{line-height:1.8;font-size:17px;overflow-wrap:anywhere}
+.reading p{line-height:2;font-size:17px;overflow-wrap:anywhere}
 .divider{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px}
 .divider::before,.divider::after{content:"";flex:1;height:1.5px;background:var(--line)}
 .note{background:var(--ink-soft);border-radius:12px;padding:12px 14px;font-size:14px}

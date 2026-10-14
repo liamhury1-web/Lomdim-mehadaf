@@ -681,7 +681,7 @@ async function generateText(target, text, opts){
     if (!target && opts.subject && !s.folder) s.folder = opts.subject;
     if (opts.level) s.level = opts.level;
     if (opts.lang && opts.lang !== 'he') s.learn = opts.lang;
-    saveSet(s); viewSet(s);
+    saveSet(s); viewSet(s); nikudNote(data);
   } catch(e) {
     if (e && e.name === 'AbortError') return viewCreate();
     if (e && e.code === 'need_code') return viewNeedCode(() => generateText(target, text, opts));
@@ -1226,6 +1226,8 @@ function modeStoryNew(s){
     }
   };
 }
+// the server leaves a text without nikud rather than with nikud it could not get from the vocalizer
+const nikudNote = d => { if (d && d.nikud === false) setTimeout(() => toast('הניקוד לא היה זמין הפעם, אז הטקסט בלי ניקוד. נסה סיפור חדש בעוד רגע.'), 400); };
 async function makeStory(s, o){
   leave(); curView = 'story-gen'; tint(s.color);
   app.innerHTML = `${topbar('סיפור חדש')}<div class="panel working">
@@ -1241,7 +1243,7 @@ async function makeStory(s, o){
     if (!r) throw { code: 'bad_json' };
     r.lang = r.lang || o.lang; r.genre = o.genre;
     s.reading.push(r); if (s.reading.length > 40) s.reading.shift();
-    saveSet(s); if (curView === 'story-gen') modeRead(s, r);
+    saveSet(s); if (curView === 'story-gen') modeRead(s, r); nikudNote(data);
   } catch(e) {
     if (e && e.name === 'AbortError') return;
     if (e && e.code === 'need_code') return viewNeedCode(() => makeStory(s, o));
