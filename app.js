@@ -746,12 +746,61 @@ function scrItems(s){
   s.cards.forEach(c => { if (lettersOnly.test(c.t) && !m.has(c.t.toLowerCase())) m.set(c.t.toLowerCase(), { w: c.t, h: c.d }); });
   return [...m.values()];
 }
-function casePool(s){
-  const words = [...new Set([...s.cards.map(c => c.t), ...s.scr.map(x => x.w)].filter(w => /^[A-Za-z]{2,10}$/.test(w)).map(w => w.toLowerCase()))];
-  let letters = [...new Set(words.join('').toUpperCase().split(''))];
-  if (s.alphabet && letters.length < 8) letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-  return [...letters.map(L => [L, L.toLowerCase()]), ...words.map(w => [w.toUpperCase(), w])];
+/* "big and small letters" in the set's own language. Languages without case get their own version:
+   Hebrew final letters, Arabic letter forms, Japanese hiragana ↔ katakana. */
+const ABC = {
+  en: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', fr: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÉÈÊÀÂÇÎÔÙÛË', es: 'ABCDEFGHIJKLMNÑOPQRSTUVWXYZÁÉÍÓÚÜ',
+  de: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ', it: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÀÈÉÌÒÙ', pt: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÁÂÃÀÇÉÊÍÓÔÕÚ',
+  ru: 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ', el: 'ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ'
+};
+const AR_JOIN = 'بتثجحخسشصضطظعغفقكلمنهي', AR_END = 'اأإآدذرزوة';
+const HIRA = 'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん';
+const SCRIPTS = { lat: /\p{Script=Latin}/u, cyr: /\p{Script=Cyrillic}/u, grk: /\p{Script=Greek}/u, heb: /\p{Script=Hebrew}/u, ara: /\p{Script=Arabic}/u, kana: /[\p{Script=Hiragana}\p{Script=Katakana}]/u, han: /\p{Script=Han}/u, eth: /\p{Script=Ethiopic}/u };
+function setScript(s, words){
+  const tl = (s.termLang || '').slice(0, 2).toLowerCase();
+  const byLang = { en:'lat', fr:'lat', es:'lat', de:'lat', it:'lat', pt:'lat', ru:'cyr', el:'grk', he:'heb', ar:'ara', ja:'kana', zh:'han', am:'eth' };
+  const count = {}; words.join('').split('').forEach(ch => { for (const k in SCRIPTS) if (SCRIPTS[k].test(ch)) { count[k] = (count[k] || 0) + 1; break; } });
+  const top = Object.keys(count).sort((a, b) => count[b] - count[a])[0];
+  // the letters actually in the set win; the language tag only breaks a tie or fills in an empty set
+  return top && (!byLang[tl] || (count[top] || 0) > (count[byLang[tl]] || 0) * 2) ? top : (byLang[tl] || top || '');
 }
+const kata = ch => String.fromCharCode(ch.charCodeAt(0) + 0x60);
+function caseInfo(s){
+  const raw = [...new Set([...s.cards.map(c => c.t), ...s.scr.map(x => x.w)].map(w => String(w || '').trim()).filter(Boolean))];
+  const sc = setScript(s, raw), tl = (s.termLang || '').slice(0, 2).toLowerCase();
+  const none = { pairs: [], name: 'גדולות וקטנות', sub: 'אין בשפה של הסט אותיות גדולות' };
+  if (sc === 'lat' || sc === 'cyr' || sc === 'grk') {
+    const re = SCRIPTS[sc], loc = tl || undefined;
+    const up = w => { try { return w.toLocaleUpperCase(loc); } catch(e){ return w.toUpperCase(); } };
+    const low = w => { try { return w.toLocaleLowerCase(loc); } catch(e){ return w.toLowerCase(); } };
+    const words = [...new Set(raw.filter(w => /^\p{L}{2,12}$/u.test(w) && [...w].every(ch => re.test(ch))).map(low))].filter(w => up(w) !== w);
+    let letters = [...new Set([...words.join('')].map(up))].filter(L => L.length === 1 && low(L) !== L);
+    const abc = ABC[tl] || (sc === 'cyr' ? ABC.ru : sc === 'grk' ? ABC.el : ABC.en);
+    if (letters.length < 8 && (s.alphabet || words.length)) letters = [...new Set([...letters, ...shuffle([...abc]).slice(0, 10 - letters.length)])];
+    const sample = [...letters.slice(0, 2), ...words.slice(0, 1)].map(x => up(x) + ' ↔ ' + low(x)).join(' · ');
+    return { pairs: [...letters.map(L => [L, low(L)]), ...words.map(w => [up(w), w])], name: 'גדולות וקטנות', sub: sample || none.sub };
+  }
+  if (sc === 'heb') {
+    if (!s.alphabet && !/עברית|לשון/.test((s.folder || '') + ' ' + s.title)) return { ...none, sub: 'אין בעברית אותיות גדולות' };
+    return { pairs: [['כ','ך'], ['מ','ם'], ['נ','ן'], ['פ','ף'], ['צ','ץ']], name: 'אותיות סופיות', sub: 'מ ↔ ם · נ ↔ ן · צ ↔ ץ' };
+  }
+  if (sc === 'ara') {
+    const used = [...new Set([...raw.join('')].filter(ch => AR_JOIN.includes(ch) || AR_END.includes(ch)))];
+    let letters = used.length >= 6 ? used : [...new Set([...used, ...shuffle([...AR_JOIN]).slice(0, 8)])];
+    const form = ch => AR_END.includes(ch) ? 'ـ' + ch : ['بـ', 'ـبـ', 'ـب'][Math.floor(Math.random() * 3)].replace(/ب/g, ch);
+    return { pairs: letters.map(ch => [ch, form(ch)]), name: 'צורות האותיות', sub: 'ب ↔ بـ ـبـ ـب · אות בודדת ואות בתוך מילה' };
+  }
+  if (sc === 'kana') {
+    const toK = w => [...w].map(ch => /\p{Script=Hiragana}/u.test(ch) ? kata(ch) : ch).join('');
+    const hira = raw.map(w => [...w].map(ch => /\p{Script=Katakana}/u.test(ch) && ch.charCodeAt(0) >= 0x30A1 && ch.charCodeAt(0) <= 0x30F6 ? String.fromCharCode(ch.charCodeAt(0) - 0x60) : ch).join(''));
+    const words = [...new Set(hira.filter(w => /^\p{Script=Hiragana}{2,6}$/u.test(w)))];
+    let letters = [...new Set([...words.join('')].filter(ch => HIRA.includes(ch)))];
+    if (letters.length < 8) letters = [...new Set([...letters, ...shuffle([...HIRA]).slice(0, 10 - letters.length)])];
+    return { pairs: [...letters.map(ch => [ch, kata(ch)]), ...words.map(w => [w, toK(w)])], name: 'הירגנה ↔ קטקנה', sub: 'あ ↔ ア · ねこ ↔ ネコ' };
+  }
+  return none;
+}
+const casePool = s => caseInfo(s).pairs;
 function mcqPool(s){
   const out = s.mcq.map(m => ({ id: m.id, q: m.q, o: m.o, a: m.a, x: m.x }));
   if (s.cards.length >= 4) s.cards.forEach(c => {
@@ -770,7 +819,7 @@ function viewSet(s){
   const n = s.cards.length;
   let editing = false;
   function draw(){
-    const k = knownCount(s), scr = scrItems(s), cp = casePool(s), mp = mcqPool(s);
+    const k = knownCount(s), scr = scrItems(s), ci = caseInfo(s), cp = ci.pairs, mp = mcqPool(s);
     const due = dueIds(s).length, speakable = canSpeak && s.cards.length > 0;
     const modes = [
       { id:'review', c:3, ic:I.cards, name:'חזרה להיום', sub: due ? due + ' פריטים שכדאי לחזור עליהם' : 'אין מה לחזור היום 👌', ok: due > 0 },
@@ -780,7 +829,7 @@ function viewSet(s){
       { id:'mcq', c:1, ic:I.abc, name:'אמריקאיות', sub: mp.length + ' שאלות לבחירה', ok: mp.length > 0 },
       { id:'match', c:2, ic:I.match, name:'התאמת זוגות', sub:'מחברים מילה לפירוש', ok: s.cards.length >= 3 },
       { id:'scr', c:3, ic:I.scr, name:'סידור אותיות', sub: scr.length ? scr.length + ' מילים לאיות' : 'אין מילים בודדות בסט', ok: scr.length > 0 },
-      { id:'case', c:4, ic:I.Aa, name:'גדולות וקטנות', sub: cp.length >= 3 ? 'A ↔ a ומילים באותיות גדולות' : 'רק לסטים באנגלית', ok: cp.length >= 3 },
+      { id:'case', c:4, ic:I.Aa, name: ci.name, sub: ci.sub, ok: cp.length >= 3 },
       { id:'write', c:5, ic:I.pen, name:'כתיבה', sub:'רואים פירוש, כותבים את המילה', ok: s.cards.length > 0 },
       { id:'lesson', c:3, ic:I.book, name:'שיעור קצר', sub: s.lesson.length ? 'הסבר על החומר' : 'ייווצר בלחיצה', ok: s.lesson.length > 0 || s.cards.length + s.mcq.length > 0 },
       { id:'read', c:5, ic:I.book, name:'קטע קריאה', sub: s.reading.length ? (s.reading.length === 1 ? 'טקסט ושאלות הבנה' : s.reading.length + ' טקסטים') : 'אין בסט הזה', ok: s.reading.length > 0 },
@@ -888,7 +937,7 @@ function startMode(s, mode){
   leave(); curView = 'practice';
   ({ flash: modeFlash, mcq: modeMcq,
      match: () => modeMatch(s, s.cards.map(c => [c.t, c.d]), 'התאמת זוגות', 'match'),
-     case: () => modeMatch(s, casePool(s), 'גדולות וקטנות', 'case'),
+     case: () => { const ci = caseInfo(s); return modeMatch(s, ci.pairs, ci.name, 'case'); },
      scr: modeScr, write: modeWrite, lesson: modeLesson, videos: modeVideos, read: modeReadPick, review: modeReview, test: modeTest, dict: modeDict })[mode](s);
 }
 
