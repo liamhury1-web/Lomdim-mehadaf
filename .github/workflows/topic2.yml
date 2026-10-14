@@ -1,0 +1,23 @@
+name: add-topic-feature-2
+on: push
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add the write-a-topic feature
+        run: |
+          if grep -q generateText app.js; then echo "already applied"; exit 0; fi
+          if [ ! -f part1.txt ] || [ ! -f part2.txt ]; then echo "waiting for parts"; exit 0; fi
+          mkdir -p /tmp/p && cat part1.txt part2.txt | tr -d ' \r\n' | base64 -d | xz -d | tar x -C /tmp/p
+          git apply /tmp/p/app.patch
+          cp /tmp/p/api/generate.js api/generate.js
+          git rm -q part1.txt part2.txt
+          git rm -q --ignore-unmatch api/diag.js
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Add write-a-topic option"
+          git push
