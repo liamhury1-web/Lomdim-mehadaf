@@ -99,7 +99,7 @@ async function hebrewNikud(result){
   await Promise.all(chunks.map(async ids => {
     const v = (await dicta(ids.map(i => src[i]).join(SEP))).split('@@@');
     if (v.length === ids.length) return ids.forEach((i, j) => { out[i] = v[j].replace(/^\n/, '').replace(/\n$/, ''); });
-    for (const i of ids) out[i] = await dicta(src[i]);
+    await Promise.all(ids.map(async i => { out[i] = await dicta(src[i]); }));
   }));
   // only accept an answer whose letters are exactly the original letters
   const same = (a, b) => stripNikud(a).replace(/[^א-ת]/g, '') === stripNikud(b).replace(/[^א-ת]/g, '');
@@ -115,6 +115,12 @@ const MARKS = {
 };
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
+  // GET /api/generate?nikud=1 checks the connection to the Hebrew vocalizer
+  if (req.method === 'GET' && req.query && req.query.nikud) {
+    const t1 = Date.now(), sample = { reading: [{ title: 'הכלב של דני', text: 'דני הלך לגן עם הכלב שלו.\nהכלב רץ מהר.', questions: [{ q: 'Who found the dog? (מי מצא את הכלב?)', options: ['דני', 'אמא'] }] }] };
+    try { await hebrewNikud(sample); return res.status(200).json({ ok: true, ms: Date.now() - t1, sample }); }
+    catch (e) { return res.status(200).json({ ok: false, ms: Date.now() - t1, error: String(e && e.message || e) }); }
+  }
   if (req.method !== 'POST') return res.status(405).json({ code: 'method' });
   const k = process.env.GEMINI_API_KEY;
   if (!k) return res.status(500).json({ code: 'no_key' });
