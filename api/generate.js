@@ -156,9 +156,9 @@ Reply ONLY JSON: {"reading":[{"title":"","lang":"${lang}","instructions":"","tex
   else if (b.mode === 'text') {
     const t = String(b.text || '').trim().slice(0, 12000);
     const subject = String(b.subject || '').slice(0, 40), level = String(b.level || '').slice(0, 40), lang = String(b.lang || '').slice(0, 12);
-    if (t.length < 3 && !subject && !lang) return res.status(400).json({ code: 'bad_request' });
+    if (t.length < 3 && !subject && (!lang || lang === 'he')) return res.status(400).json({ code: 'bad_request' });
     const extra = [subject && 'Subject: ' + subject, level && 'Level: ' + level,
-      lang && 'Target language: ' + lang + ' (write the study content, words, sentences and texts in this language; explanations stay in Hebrew)',
+      lang && lang !== 'he' && 'Target language: ' + lang + ' (write the study content, words, sentences and texts in this language; explanations stay in Hebrew)',
       b.reading && 'Include 1 reading passage with comprehension questions in "reading".'].filter(Boolean).join('\n');
     parts.push({ text: TEXT + (t || '(no text, build a good general set from the settings below)') + '\n"""\n' + extra + '\n\n' + FORMAT });
   } else {

@@ -591,7 +591,7 @@ function viewCreate(errMsg){
         <label for="lvl"><span class="small muted">רמה</span>
           <select id="lvl"><option value="">רגילה</option>${LEVELS.map(x => `<option>${x}</option>`).join('')}</select></label>
         <label for="lng"><span class="small muted">שפה</span>
-          <select id="lng"><option value="">אוטומטי</option>${LANGS.map(([v, n]) => `<option value="${v}">${n}</option>`).join('')}</select></label>
+          <select id="lng">${LANGS.map(([v, n]) => `<option value="${v}">${n}</option>`).join('')}</select></label>
       </div>
       <label class="row small" for="wantread" style="gap:8px"><input type="checkbox" id="wantread"> הוסף סיפור לקריאה עם שאלות</label>
       <button class="btn primary wide" type="button" data-a="text">צור תרגול מהטקסט</button>
@@ -630,7 +630,7 @@ function viewCreate(errMsg){
         const t = document.getElementById('topic').value.trim();
         const opts = { subject: document.getElementById('subj').value, level: document.getElementById('lvl').value,
           lang: document.getElementById('lng').value, reading: document.getElementById('wantread').checked };
-        if (t.length < 3 && !opts.subject && !opts.lang) return toast('כתוב נושא, או בחר מקצוע או שפה');
+        if (t.length < 3 && !opts.subject && (!opts.lang || opts.lang === 'he')) return toast('כתוב נושא, או בחר מקצוע או שפה');
         return generateText(target, t, opts);
       }
       case 'manual': {
@@ -1204,7 +1204,7 @@ function learnCode(s){
 function modeStoryNew(s){
   leave(); curView = 'practice'; tint(s.color);
   let genre = '';
-  const lang = learnCode(s), level = s.level || 'כיתה ז׳';
+  const lang = 'he', level = s.level || 'כיתה ז׳'; // Hebrew unless the student picks another language
   app.innerHTML = `${topbar('סיפור חדש')}
     <section class="panel stack">
       <span class="small muted">איזה סיפור?</span>
