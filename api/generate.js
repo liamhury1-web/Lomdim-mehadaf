@@ -101,9 +101,13 @@ async function hebrewNikud(result){
     if (v.length === ids.length) return ids.forEach((i, j) => { out[i] = v[j].replace(/^\n/, '').replace(/\n$/, ''); });
     await Promise.all(ids.map(async i => { out[i] = await dicta(src[i]); }));
   }));
-  // only accept an answer whose letters are exactly the original letters
-  const same = (a, b) => stripNikud(a).replace(/[^א-ת]/g, '') === stripNikud(b).replace(/[^א-ת]/g, '');
-  if (!out.every((v, i) => typeof v === 'string' && same(v, src[i]))) throw new Error('nakdan mismatch');
+  // Accept the vocalized text only if it is the same text: same letters, except that pointed spelling
+  // drops or adds the vowel letters ו and י (חיבור → חִבּוּר). Anything else means the answer is misaligned.
+  const core = t => stripNikud(t).replace(/[^א-ת]/g, '').replace(/[וי]/g, '');
+  const same = (a, b) => typeof a === 'string' && core(a) === core(b);
+  await Promise.all(src.map(async (t, i) => { if (!same(out[i], t)) { console.error('nakdan retry', t.slice(0, 60)); out[i] = await dicta(t); } }));
+  const bad = src.findIndex((t, i) => !same(out[i], t));
+  if (bad >= 0) throw new Error('nakdan mismatch: ' + src[bad].slice(0, 80) + ' → ' + String(out[bad]).slice(0, 80));
   refs.forEach(([o, key], i) => { o[key] = out[i]; });
   return true;
 }
@@ -117,7 +121,7 @@ export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   // GET /api/generate?nikud=1 checks the connection to the Hebrew vocalizer
   if (req.method === 'GET' && req.query && req.query.nikud) {
-    const t1 = Date.now(), sample = { reading: [{ title: 'הכלב של דני', text: 'דני הלך לגן עם הכלב שלו.\nהכלב רץ מהר.', questions: [{ q: 'Who found the dog? (מי מצא את הכלב?)', options: ['דני', 'אמא'] }] }] };
+    const t1 = Date.now(), sample = req.query.t ? { t: String(req.query.t).slice(0, 500) } : { reading: [{ title: 'הכלב של דני', text: 'דני הלך לגן עם הכלב שלו.\nהכלב רץ מהר.', questions: [{ q: 'Who found the dog? (מי מצא את הכלב?)', options: ['דני', 'אמא'] }] }] };
     try { await hebrewNikud(sample); return res.status(200).json({ ok: true, ms: Date.now() - t1, sample }); }
     catch (e) { return res.status(200).json({ ok: false, ms: Date.now() - t1, error: String(e && e.message || e) }); }
   }
