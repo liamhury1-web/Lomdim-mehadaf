@@ -69,7 +69,8 @@ function fixSet(s){
     color: Number.isInteger(s.color) ? Math.abs(s.color) % 6 : sets.length % 6,
     termLang: s.termLang || '', defLang: s.defLang || '', alphabet: !!s.alphabet, example: !!s.example,
     cards: arr(s.cards), mcq: arr(s.mcq), scr: arr(s.scr), topics: arr(s.topics), lesson: arr(s.lesson), reading: arr(s.reading),
-    known: s.known && typeof s.known === 'object' ? s.known : {}, best: s.best && typeof s.best === 'object' ? s.best : {} };
+    known: s.known && typeof s.known === 'object' ? s.known : {}, best: s.best && typeof s.best === 'object' ? s.best : {},
+    srs: s.srs && typeof s.srs === 'object' ? s.srs : {}, folder: typeof s.folder === 'string' ? s.folder.slice(0, 40) : '', challenge: s.challenge && typeof s.challenge === 'object' ? s.challenge : null };
 }
 
 /* ---------------- shaping the AI answer ---------------- */
@@ -155,7 +156,8 @@ async function encodeSet(s){
   const slim = { t: s.title, tl: s.termLang, dl: s.defLang, a: s.alphabet ? 1 : 0, k: s.color,
     c: s.cards.map(c => [c.t, c.d]), q: s.mcq.map(m => [m.q, m.o, m.a, m.x]), w: s.scr.map(x => [x.w, x.h]),
     tp: s.topics.map(t => [t.name, t.q]), l: s.lesson.map(x => [x.h, x.b]),
-    r: s.reading.map(r => [r.title, r.lang, r.text, r.q.map(m => [m.q, m.o, m.a, m.x]), r.instr || '']) };
+    r: s.reading.map(r => [r.title, r.lang, r.text, r.q.map(m => [m.q, m.o, m.a, m.x]), r.instr || '']),
+    ch: { n: lget('lomdim_name') || '', m: s.best.matchTime || null, t: s.best.test == null ? null : s.best.test }, f: s.folder || '' };
   const bytes = new TextEncoder().encode(JSON.stringify(slim));
   if ('CompressionStream' in window) {
     try { const st = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw')); return 'z' + b64url(new Uint8Array(await new Response(st).arrayBuffer())); } catch(e){}
@@ -169,7 +171,8 @@ async function decodeSet(str){
   else raw = bytes;
   const o = JSON.parse(new TextDecoder().decode(raw));
   const arr = v => Array.isArray(v) ? v : [];
-  const s = fixSet({ title: String(o.t || 'סט משותף').slice(0, 60), termLang: o.tl, defLang: o.dl, alphabet: !!o.a, color: Number.isInteger(o.k) ? o.k : 0 });
+  const s = fixSet({ title: String(o.t || 'סט משותף').slice(0, 60), termLang: o.tl, defLang: o.dl, alphabet: !!o.a, color: Number.isInteger(o.k) ? o.k : 0, folder: String(o.f || '') });
+  if (o.ch && (o.ch.m || o.ch.t != null)) s.challenge = { n: String(o.ch.n || '').slice(0, 30), m: typeof o.ch.m === 'number' ? o.ch.m : null, t: typeof o.ch.t === 'number' ? o.ch.t : null };
   mergeInto(s, normalize({
     cards: arr(o.c).map(x => ({ term: x[0], def: x[1] })), mcq: arr(o.q).map(x => ({ q: x[0], options: x[1], answer: x[2], explain: x[3] })),
     scramble: arr(o.w).map(x => ({ word: x[0], hint: x[1] })), topics: arr(o.tp).map(x => ({ name: x[0], query: x[1] })), lesson: arr(o.l).map(x => ({ title: x[0], body: x[1] })),
@@ -178,9 +181,11 @@ async function decodeSet(str){
   return s;
 }
 async function shareSet(s){
+  if (!lget('lomdim_name')) { const n = prompt('איך לקרוא לך באתגר? (החבר יראה את השם ואת השיאים שלך)', ''); if (n && n.trim()) lset('lomdim_name', n.trim().slice(0, 30)); }
   let url;
   try { url = location.origin + '/#s=' + await encodeSet(s); } catch(e) { return toast('לא הצלחתי ליצור קישור'); }
-  if (navigator.share) { try { await navigator.share({ title: s.title, text: 'סט לתרגול: ' + s.title, url }); return; } catch(e) { if (e && e.name === 'AbortError') return; } }
+  const chText = (s.best.test != null || s.best.matchTime) ? ' · נסה לשבור את השיא שלי!' : '';
+  if (navigator.share) { try { await navigator.share({ title: s.title, text: 'סט לתרגול: ' + s.title + chText, url }); return; } catch(e) { if (e && e.name === 'AbortError') return; } }
   try { await navigator.clipboard.writeText(url); toast('הקישור הועתק'); } catch(e) { prompt('העתק את הקישור:', url); }
 }
 
@@ -203,6 +208,9 @@ let onPicked = null;
   const el = document.getElementById(id);
   el.addEventListener('change', () => { const files = [...(el.files || [])]; el.value = ''; if (onPicked && files.length) onPicked(files); });
 });
+let onPickedJson = null;
+(() => { const el = document.createElement('input'); el.type = 'file'; el.accept = '.json,application/json'; el.id = 'pickJson'; el.className = 'vh'; el.tabIndex = -1;
+  el.addEventListener('change', () => { const f = el.files && el.files[0]; el.value = ''; if (f && onPickedJson) onPickedJson(f); }); document.body.appendChild(el); })();
 function openPicker(which){ const el = document.getElementById(which === 'cam' ? 'pickCam' : 'pickGal'); el.value = ''; el.click(); }
 
 
@@ -302,6 +310,185 @@ function gameSimon(area, report){
   return () => { timers.forEach(clearTimeout); area.onclick = null; area.innerHTML = ''; };
 }
 
+
+/* ---------------- progress: spaced review, points, streak, badges ---------------- */
+const DAY = 86400000, BOX_DAYS = [0, 1, 2, 4, 7, 15];
+const today = (d = new Date()) => d.toLocaleDateString('en-CA');
+function srsOf(s){ if (!s.srs || typeof s.srs !== 'object') s.srs = {}; return s.srs; }
+function srsMark(s, id, ok){
+  if (!id) return;
+  const r = srsOf(s), cur = r[id] || { b: 0, d: 0 };
+  const b = ok ? Math.min(5, cur.b + 1) : 1;
+  r[id] = { b, d: Date.now() + (ok ? BOX_DAYS[b] * DAY : 5 * 60000) };
+}
+function dueIds(s){
+  const r = srsOf(s), now = Date.now(), ids = new Set([...s.cards.map(c => c.id), ...s.mcq.map(m => m.id)]);
+  return Object.keys(r).filter(id => ids.has(id) && r[id].d <= now);
+}
+const SKEY = 'lomdim_stats';
+function stats(){ try { const o = JSON.parse(lget(SKEY) || '{}'); return o && typeof o === 'object' ? o : {}; } catch(e){ return {}; } }
+function saveStats(st){ lset(SKEY, JSON.stringify(st)); }
+function streakOf(st){
+  const days = st.days || {}; let n = 0; const d = new Date();
+  if (!days[today(d)]) d.setDate(d.getDate() - 1);
+  while (days[today(d)]) { n++; d.setDate(d.getDate() - 1); }
+  return n;
+}
+const BADGES = [
+  ['first', '🌱', 'תשובה ראשונה', st => (st.answers || 0) >= 1],
+  ['c50', '⭐', '50 תשובות נכונות', st => (st.correct || 0) >= 50],
+  ['c250', '🏅', '250 תשובות נכונות', st => (st.correct || 0) >= 250],
+  ['c1000', '🏆', '1000 תשובות נכונות', st => (st.correct || 0) >= 1000],
+  ['s3', '🔥', '3 ימים ברצף', st => streakOf(st) >= 3],
+  ['s7', '🚀', 'שבוע ברצף', st => streakOf(st) >= 7],
+  ['s30', '💎', 'חודש ברצף', st => streakOf(st) >= 30],
+  ['perfect', '🎯', 'מבחן מושלם', st => (st.perfect || 0) >= 1],
+  ['sets5', '📚', '5 סטים', () => sets.length >= 5],
+  ['win', '🥇', 'ניצחון באתגר', st => (st.wins || 0) >= 1]
+];
+function award(ok, extra){
+  const st = stats();
+  st.answers = (st.answers || 0) + 1;
+  if (ok) st.correct = (st.correct || 0) + 1;
+  st.points = (st.points || 0) + (ok ? 10 : 2);
+  st.days = st.days || {}; st.days[today()] = (st.days[today()] || 0) + 1;
+  if (extra) Object.keys(extra).forEach(k => st[k] = (st[k] || 0) + extra[k]);
+  st.badges = st.badges || [];
+  BADGES.forEach(([id, icon, name, test]) => { if (!st.badges.includes(id) && test(st)) { st.badges.push(id); setTimeout(() => toast('תג חדש: ' + icon + ' ' + name), 300); } });
+  saveStats(st);
+}
+function bump(extra){ const st = stats(); Object.keys(extra).forEach(k => st[k] = (st[k] || 0) + extra[k]); st.badges = st.badges || [];
+  BADGES.forEach(([id, icon, name, test]) => { if (!st.badges.includes(id) && test(st)) { st.badges.push(id); toast('תג חדש: ' + icon + ' ' + name); } }); saveStats(st); }
+function statsBar(){
+  const st = stats(), sk = streakOf(st), pts = st.points || 0, earned = BADGES.filter(b => (st.badges || []).includes(b[0]));
+  if (!st.answers) return '';
+  return `<div class="statsbar"><span class="pill">🔥 ${sk} ${sk === 1 ? 'יום' : 'ימים'} ברצף</span><span class="pill">⭐ ${pts.toLocaleString('he-IL')} נקודות</span></div>
+    ${earned.length ? `<div class="badges">${earned.map(b => `<span class="badge" title="${esc(b[2])}">${b[1]} ${esc(b[2])}</span>`).join('')}</div>` : ''}`;
+}
+
+/* ---------------- mixed quiz runner: review, test, dictation ---------------- */
+const normAns = t => String(t).toLowerCase().normalize('NFD').replace(/[̀-֑ͯ-ׇ]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+function itemsOf(s){ return [...s.cards.map(c => ({ s, id: c.id, kind: 'card', c })), ...s.mcq.map(m => ({ s, id: m.id, kind: 'mcq', m }))]; }
+function shapeQ(it, prefer){
+  if (it.kind === 'mcq') return { ...it, type: 'mcq', q: it.m.q, o: it.m.o, a: it.m.a, x: it.m.x };
+  const c = it.c, s = it.s, types = ['flash', 'write'];
+  if (s.cards.length >= 4) types.push('mcq', 'mcq');
+  if (canSpeak && c.t.length <= 40) types.push('dict');
+  const t = prefer && types.includes(prefer) ? prefer : types[Math.random() * types.length | 0];
+  if (t === 'mcq') {
+    const others = shuffle(s.cards.filter(o => o !== c && o.d !== c.d)).slice(0, 3).map(o => o.d);
+    const o = shuffle([c.d, ...others]);
+    return { ...it, type: 'mcq', q: c.t, o, a: o.indexOf(c.d), x: '', say: true };
+  }
+  return { ...it, type: t };
+}
+function runQuiz(title, qs, back, opts){
+  opts = opts || {};
+  leave(); curView = 'practice';
+  if (!qs.length) { toast('אין שאלות כרגע'); return back(); }
+  let i = 0, right = 0, answered = false; const wrong = [];
+  function record(q, ok){
+    if (answered) return; answered = true;
+    if (ok) right++; else wrong.push(q);
+    srsMark(q.s, q.id, ok);
+    if (q.kind === 'card') { if (ok) q.s.known[q.id] = true; else delete q.s.known[q.id]; }
+    award(ok); saveSoon(q.s);
+  }
+  function nextBtn(){ return `<button class="btn primary wide" type="button" data-n="1">${i + 1 < qs.length ? 'הבא' : 'לתוצאה'}</button>`; }
+  function draw(){
+    const q = qs[i], s = q.s; answered = false; tint(s.color);
+    let body = '';
+    if (q.type === 'mcq') body = `<div class="panel stack"><div class="row" style="align-items:flex-start"><p class="q grow" dir="auto">${esc(q.q)}</p>${q.say ? sayBtn(q.q, s.termLang) : ''}</div></div>
+      <div class="opts">${q.o.map((o, j) => `<button class="opt" data-c="${j % 6}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span><span dir="auto">${esc(o)}</span></button>`).join('')}</div>`;
+    else if (q.type === 'flash') body = `<div class="panel stack qflash"><span class="eyebrow">אתה יודע מה זה?</span><p class="q" dir="auto">${esc(q.c.t)}</p>${sayBtn(q.c.t, s.termLang)}
+      <div id="rev" hidden><p class="explain" dir="auto">${esc(q.c.d)}</p></div>
+      <button class="btn wide" type="button" data-show="1">הצג תשובה</button></div>
+      <div class="row" id="fl" hidden><button class="btn grow" data-f="no" style="color:var(--bad)">לא ידעתי</button><button class="btn grow" data-f="yes" style="color:var(--ok)">ידעתי ✓</button></div>`;
+    else body = `<div class="panel stack">${q.type === 'dict'
+        ? `<span class="eyebrow">הקשב וכתוב</span><button class="btn colored wide dictbtn" type="button" data-say="${esc(q.c.t)}" data-lang="${esc(s.termLang || '')}">${I.say} השמע שוב</button><p class="small muted" dir="auto">רמז: ${esc(q.c.d)}</p>`
+        : `<span class="eyebrow">כתוב את המילה שמתאימה</span><p class="q" dir="auto">${esc(q.c.d)}</p>`}</div>
+      <form id="qf" class="stack"><input type="text" id="ans" dir="auto" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="התשובה שלך" placeholder="התשובה שלך">
+      <button class="btn primary wide" type="submit" id="chk">בדוק</button></form>`;
+    app.innerHTML = `${topbar(title, (i + 1) + '/' + qs.length)}<div class="bar"><i style="width:${i / qs.length * 100}%"></i></div>${body}<div id="after"></div>`;
+    if (q.type === 'dict') setTimeout(() => speak(q.c.t, s.termLang), 250);
+    if (q.type === 'write' || q.type === 'dict') setTimeout(() => { const inp = document.getElementById('ans'); if (inp) inp.focus(); }, 60);
+  }
+  function finish(){
+    const pct = Math.round(right / qs.length * 100);
+    if (opts.onDone) opts.onDone(pct, right);
+    const extra = wrong.length ? '<button class="btn" data-r="extra">חזרה על הטעויות</button>' : '';
+    resultView(opts.home ? null : qs[0].s, title, opts.test ? pct + '%' : `${right}/${qs.length}`, pct === 100 ? 'מושלם! 🎉' : `${right} נכונות מתוך ${qs.length}`,
+      only => only ? runQuiz(title, shuffle(wrong).map(q => shapeQ(q, q.type)), back, { home: opts.home }) : (opts.again ? opts.again() : back()), extra);
+  }
+  draw();
+  app.onsubmit = ev => {
+    ev.preventDefault();
+    const q = qs[i], inp = document.getElementById('ans'); if (answered || !inp || !inp.value.trim()) return;
+    const ok = normAns(inp.value) === normAns(q.c.t); record(q, ok);
+    inp.readOnly = true; inp.style.borderColor = ok ? 'var(--ok)' : 'var(--bad)'; document.getElementById('chk').hidden = true;
+    document.getElementById('after').innerHTML = `<div class="stack">${ok ? '<p class="note good">נכון!</p>'
+      : `<p class="note bad">התשובה: <strong dir="auto">${esc(q.c.t)}</strong></p><button class="btn ghost" type="button" data-mine="1">צדקתי, זו רק שגיאת הקלדה</button>`}${nextBtn()}</div>`;
+  };
+  app.onclick = async e => {
+    if (e.target.closest('[data-a="quit"]')) return back();
+    const q = qs[i];
+    if (e.target.closest('[data-n]')) { i++; return i >= qs.length ? finish() : draw(); }
+    if (e.target.closest('[data-mine]')) { right++; wrong.pop(); srsMark(q.s, q.id, true); q.s.known[q.id] = true; award(true); e.target.closest('[data-mine]').remove(); return; }
+    if (e.target.closest('[data-show]')) { document.getElementById('rev').hidden = false; document.getElementById('fl').hidden = false; e.target.closest('[data-show]').remove(); return; }
+    const f = e.target.closest('[data-f]');
+    if (f && !answered) { record(q, f.dataset.f === 'yes'); i++; return i >= qs.length ? finish() : draw(); }
+    const why = e.target.closest('[data-why]');
+    if (why) { why.disabled = true; why.textContent = 'חושב…'; const out = await explainWhy(q, +why.dataset.why); why.replaceWith(Object.assign(document.createElement('p'), { className: 'explain', dir: 'auto', textContent: out })); return; }
+    const o = e.target.closest('[data-o]'); if (!o || answered || q.type !== 'mcq') return;
+    const pick = +o.dataset.o, ok = pick === q.a; record(q, ok);
+    app.querySelectorAll('.opt').forEach((b, j) => { if (j === q.a) b.classList.add('right'); else if (j === pick) b.classList.add('wrong'); b.disabled = true; });
+    document.getElementById('after').innerHTML = `<div class="stack">${q.x ? `<p class="explain" dir="auto">${esc(q.x)}</p>` : ''}${!ok ? `<button class="btn ghost" type="button" data-why="${pick}">🤔 למה זו התשובה?</button>` : ''}${nextBtn()}</div>`;
+  };
+}
+async function explainWhy(q, pick){
+  try {
+    const data = await callApi({ mode: 'explain', q: q.q, options: q.o, correct: q.o[q.a], chosen: q.o[pick] });
+    return String((data && data.result && data.result.explain) || 'לא הצלחתי להסביר כרגע.');
+  } catch(e) { return e && e.code === 'need_code' ? 'צריך קוד גישה כדי לקבל הסבר.' : errText(e); }
+}
+function modeReview(s){ const ids = new Set(dueIds(s)); runQuiz('חזרה להיום', shuffle(itemsOf(s).filter(it => ids.has(it.id))).slice(0, 20).map(it => shapeQ(it)), () => viewSet(s)); }
+function modeTest(s){
+  runQuiz('מבחן', shuffle(itemsOf(s)).slice(0, 15).map(it => shapeQ(it)), () => viewSet(s), { test: true, again: () => modeTest(s), onDone: pct => {
+    if (pct === 100) bump({ perfect: 1 });
+    if (!s.best.test || pct > s.best.test) { s.best.test = pct; saveSoon(s); }
+    if (s.challenge && s.challenge.t != null && pct > s.challenge.t && !s.challenge.wonT) { s.challenge.wonT = 1; bump({ wins: 1 }); setTimeout(() => toast('🥇 ניצחת את ' + (s.challenge.n || 'החבר') + ' במבחן!'), 400); }
+  } });
+}
+function modeDict(s){ runQuiz('הכתבה', shuffle(s.cards.filter(c => c.t.length <= 40)).slice(0, 10).map(c => shapeQ({ s, id: c.id, kind: 'card', c }, 'dict')), () => viewSet(s), { again: () => modeDict(s) }); }
+function dailyReview(){
+  const all = [];
+  sets.forEach(s => { const ids = new Set(dueIds(s)); itemsOf(s).forEach(it => { if (ids.has(it.id)) all.push(it); }); });
+  runQuiz('חזרה יומית', shuffle(all).slice(0, 25).map(it => shapeQ(it)), () => viewHome(), { home: true });
+}
+function totalDue(){ return sets.reduce((n, s) => n + dueIds(s).length, 0); }
+
+/* ---------------- backup ---------------- */
+function backupNow(){
+  const data = JSON.stringify({ app: 'lomdim-mehadaf', v: 1, at: new Date().toISOString(), sets, stats: stats() });
+  const blob = new Blob([data], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'lomdim-backup-' + today() + '.json';
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  toast('הגיבוי נשמר בתיקיית ההורדות');
+}
+function restoreFrom(file){
+  const fr = new FileReader();
+  fr.onload = () => {
+    try {
+      const o = JSON.parse(fr.result); if (!o || !Array.isArray(o.sets)) throw 0;
+      let added = 0;
+      o.sets.forEach(x => { const s = fixSet(x), cur = getSet(s.id); if (!cur) { sets.push(s); added++; } else if ((s.updated || 0) > (cur.updated || 0)) { Object.assign(cur, s); added++; } });
+      if (o.stats && typeof o.stats === 'object') { const st = stats(); if ((o.stats.points || 0) > (st.points || 0)) saveStats({ ...o.stats, ...st, points: o.stats.points, correct: Math.max(o.stats.correct || 0, st.correct || 0), answers: Math.max(o.stats.answers || 0, st.answers || 0), days: { ...(o.stats.days || {}), ...(st.days || {}) }, badges: [...new Set([...(o.stats.badges || []), ...(st.badges || [])])] }); }
+      persist(); toast(added ? 'שוחזרו ' + added + ' סטים' : 'כל הסטים כבר קיימים'); viewHome();
+    } catch(e) { toast('הקובץ הזה לא נראה כמו גיבוי של האפליקציה'); }
+  };
+  fr.readAsText(file);
+}
+
 /* ---------------- views ---------------- */
 let curView = '';
 let pages = [], createTarget = null;
@@ -316,8 +503,12 @@ function setStats(s){
 }
 const knownCount = s => s.cards.filter(c => s.known[c.id]).length;
 
+let homeFolder = '';
 function viewHome(){
   leave(); curView = 'home'; tint(null);
+  const due = totalDue(), folders = [...new Set(sets.map(s => s.folder).filter(Boolean))].sort();
+  if (homeFolder && !folders.includes(homeFolder)) homeFolder = '';
+  const shown = homeFolder ? sets.filter(s => s.folder === homeFolder) : sets;
   app.innerHTML = `
     <header class="hero">
       <div class="rainbow" aria-hidden="true">${[0,1,2,3,4,5].map(c => `<i data-c="${c}"></i>`).join('')}</div>
@@ -325,14 +516,17 @@ function viewHome(){
       <p class="muted">מצלמים דף עבודה או כותבים נושא שרוצים ללמוד, ומקבלים כרטיסיות, שאלות אמריקאיות, התאמת זוגות, סידור אותיות, שיעור קצר וסרטונים.</p>
     </header>
     ${installHtml()}
+    ${statsBar()}
+    ${due ? `<button class="btn colored wide" data-c="3" data-a="daily">🔁 חזרה יומית · ${due} פריטים מחכים</button>` : ''}
     <button class="btn primary wide" data-a="new">${I.cam} סט חדש מצילום</button>
     ${sets.length ? `
-      <div class="row between"><h2>הסטים שלי</h2><span class="muted small count">${sets.length}</span></div>
-      <div class="sets">${sets.map(s => {
+      <div class="row between"><h2>הסטים שלי</h2><span class="muted small count">${shown.length}</span></div>
+      ${folders.length ? `<div class="chips">${['', ...folders].map(f => `<button type="button" class="chip" data-folder="${esc(f)}" aria-pressed="${homeFolder === f}">${esc(f || 'הכול')}</button>`).join('')}</div>` : ''}
+      <div class="sets">${shown.map(s => {
         const k = knownCount(s), n = s.cards.length;
         return `<button class="setcard" data-c="${s.color}" data-open="${esc(s.id)}">
           <div class="row between" style="width:100%"><h3 dir="auto">${esc(s.title)}</h3>${s.example ? '<span class="tag">דוגמה</span>' : ''}</div>
-          <span class="muted small">${esc(setStats(s))}</span>
+          <span class="muted small">${esc(setStats(s))}${s.folder ? ' · 📁 ' + esc(s.folder) : ''}${dueIds(s).length ? ' · 🔁 ' + dueIds(s).length + ' לחזרה' : ''}</span>
           ${n ? `<div class="row" style="width:100%"><div class="meter grow"><i style="width:${Math.round(k / n * 100)}%"></i></div><span class="small count">${k}/${n}</span></div>` : ''}
         </button>`; }).join('')}</div>`
     : `
@@ -346,14 +540,22 @@ function viewHome(){
         <p class="muted small">לחץ על "סט חדש מצילום" כדי להתחיל, או פתח סט לדוגמה של מילים באנגלית כדי לראות איך זה עובד.</p>
         <button class="btn" data-a="example">פתח סט לדוגמה</button>
       </div>`}
-    <p class="muted small">הסטים נשמרים במכשיר הזה. כדי להעביר סט לחבר או למכשיר אחר, לחץ "שתף" בתוך הסט.</p>`;
+    <div class="panel stack backup">
+      <strong>גיבוי</strong>
+      <p class="muted small">הסטים נשמרים רק בטלפון הזה. שמור גיבוי לקובץ, ותוכל לשחזר אותו בטלפון אחר או אחרי מחיקה.</p>
+      <div class="row"><button class="btn grow" type="button" data-a="backup">שמור גיבוי</button><button class="btn grow" type="button" data-a="restore">שחזר מגיבוי</button></div>
+    </div>`;
   app.onclick = async e => {
     const o = e.target.closest('[data-open]'); if (o) return viewSet(getSet(o.dataset.open));
+    const fo = e.target.closest('[data-folder]'); if (fo) { homeFolder = fo.dataset.folder; return viewHome(); }
     const a = e.target.closest('[data-a]'); if (!a) return;
     if (a.dataset.a === 'new') { createTarget = null; pages = []; return viewCreate(); }
     if (a.dataset.a === 'example') { const s = exampleSet(); saveSet(s); return viewSet(s); }
     if (a.dataset.a === 'install' && installEvt) { installEvt.prompt(); try { await installEvt.userChoice; } catch(e){} installEvt = null; return viewHome(); }
     if (a.dataset.a === 'hideinstall') { lset('lomdim_install_hide', '1'); return viewHome(); }
+    if (a.dataset.a === 'daily') return dailyReview();
+    if (a.dataset.a === 'backup') return backupNow();
+    if (a.dataset.a === 'restore') { onPickedJson = f => restoreFrom(f); return document.getElementById('pickJson').click(); }
   };
 }
 
@@ -476,6 +678,7 @@ async function generateText(target, text, opts){
     const s = target || fixSet({ title: '' });
     mergeInto(s, part);
     if (!s.title || s.title === 'סט ללא שם') s.title = label.slice(0, 40);
+    if (!target && opts.subject && !s.folder) s.folder = opts.subject;
     saveSet(s); viewSet(s);
   } catch(e) {
     if (e && e.name === 'AbortError') return viewCreate();
@@ -550,12 +753,12 @@ function casePool(s){
   return [...letters.map(L => [L, L.toLowerCase()]), ...words.map(w => [w.toUpperCase(), w])];
 }
 function mcqPool(s){
-  const out = s.mcq.map(m => ({ q: m.q, o: m.o, a: m.a, x: m.x }));
+  const out = s.mcq.map(m => ({ id: m.id, q: m.q, o: m.o, a: m.a, x: m.x }));
   if (s.cards.length >= 4) s.cards.forEach(c => {
     const others = shuffle(s.cards.filter(o => o !== c && o.d !== c.d)).slice(0, 3).map(o => o.d);
     if (others.length < 2) return;
     const o = shuffle([c.d, ...others]);
-    out.push({ q: c.t, o, a: o.indexOf(c.d), x: '', say: true });
+    out.push({ id: c.id, q: c.t, o, a: o.indexOf(c.d), x: '', say: true });
   });
   return out;
 }
@@ -568,7 +771,11 @@ function viewSet(s){
   let editing = false;
   function draw(){
     const k = knownCount(s), scr = scrItems(s), cp = casePool(s), mp = mcqPool(s);
+    const due = dueIds(s).length, speakable = canSpeak && s.cards.length > 0;
     const modes = [
+      { id:'review', c:3, ic:I.cards, name:'חזרה להיום', sub: due ? due + ' פריטים שכדאי לחזור עליהם' : 'אין מה לחזור היום 👌', ok: due > 0 },
+      { id:'test', c:2, ic:I.abc, name:'מבחן מסכם', sub: s.best.test != null ? 'השיא שלך ' + s.best.test + '%' : 'כל סוגי השאלות, עם ציון', ok: s.cards.length + s.mcq.length > 0 },
+      { id:'dict', c:0, ic:I.say, name:'הכתבה', sub: speakable ? 'שומעים מילה וכותבים' : 'צריך מילים בסט', ok: speakable },
       { id:'flash', c:0, ic:I.cards, name:'כרטיסיות', sub:'הופכים ובודקים מה יודעים', ok: s.cards.length > 0 },
       { id:'mcq', c:1, ic:I.abc, name:'אמריקאיות', sub: mp.length + ' שאלות לבחירה', ok: mp.length > 0 },
       { id:'match', c:2, ic:I.match, name:'התאמת זוגות', sub:'מחברים מילה לפירוש', ok: s.cards.length >= 3 },
@@ -596,6 +803,8 @@ function viewSet(s){
         <input class="titlein" id="title" type="text" value="${esc(s.title)}" dir="auto" aria-label="שם הסט">
         <span class="muted small">${esc(setStats(s))}${n ? ` · יודע <strong>${k}</strong> מתוך ${s.cards.length}` : ''}</span>
         ${s.cards.length ? `<div class="meter"><i style="width:${Math.round(k / s.cards.length * 100)}%"></i></div>` : ''}
+        ${challengeHtml(s)}
+        <label class="folderrow" for="folder"><span class="small muted">📁 תיקייה</span><input type="text" id="folder" list="folderlist" value="${esc(s.folder || '')}" placeholder="למשל: אנגלית" dir="auto"><datalist id="folderlist">${[...new Set([...SUBJECTS, ...sets.map(x => x.folder).filter(Boolean)])].map(f => `<option value="${esc(f)}">`).join('')}</datalist></label>
         <div class="swatches" role="group" aria-label="צבע הסט">${[0,1,2,3,4,5].map(c => `<button type="button" data-c="${c}" data-color="${c}" aria-pressed="${s.color === c}" aria-label="צבע ${c + 1}"></button>`).join('')}</div>
       </div>
       <div class="modes">${modes.map(m => `<button class="mode" data-c="${m.c}" data-mode="${m.id}" ${m.ok ? '' : 'disabled'}>${m.ic}<strong>${m.name}</strong><span>${esc(m.sub)}</span></button>`).join('')}</div>
@@ -605,7 +814,8 @@ function viewSet(s){
       <div class="row">${k ? '<button class="btn ghost" data-a="reset">אפס התקדמות</button>' : ''}<span class="grow"></span><button class="btn ghost danger" data-a="del">מחק סט</button></div>`;
   }
   draw();
-  app.onchange = e => { if (e.target.id === 'title') { const v = e.target.value.trim(); if (v && v !== s.title) { s.title = v.slice(0, 60); saveSet(s); toast('השם נשמר'); } } };
+  app.onchange = e => { if (e.target.id === 'folder') { s.folder = e.target.value.trim().slice(0, 40); saveSet(s); toast(s.folder ? 'הועבר לתיקייה ' + s.folder : 'הוצא מהתיקייה'); return; }
+    if (e.target.id === 'title') { const v = e.target.value.trim(); if (v && v !== s.title) { s.title = v.slice(0, 60); saveSet(s); toast('השם נשמר'); } } };
   let delArm = 0;
   app.onclick = e => {
     const col = e.target.closest('[data-color]');
@@ -637,10 +847,16 @@ function viewSet(s){
   };
 }
 
+function challengeHtml(s){
+  const c = s.challenge; if (!c) return '';
+  const parts = [c.t != null ? 'מבחן ' + c.t + '%' : '', c.m ? 'התאמת זוגות ' + c.m + '″' : ''].filter(Boolean).join(' · ');
+  return `<div class="challenge">🏁 <strong>${esc(c.n || 'חבר')}</strong> מאתגר אותך: ${esc(parts)}</div>`;
+}
 function viewImport(s){
   leave(); curView = 'import'; tint(s.color);
   app.innerHTML = `
     <header class="hero"><span class="eyebrow">שיתפו איתך סט</span><h2 dir="auto" style="color:var(--k)">${esc(s.title)}</h2><p class="muted">${esc(setStats(s))}</p></header>
+    ${challengeHtml(s)}
     <div class="panel stack">
       <p>הסט יישמר במכשיר שלך ותוכל לתרגל אותו גם בלי אינטרנט.</p>
       <button class="btn primary wide" data-a="add">שמור אצלי והתחל לתרגל</button>
@@ -663,7 +879,7 @@ function resultView(s, title, big, line, again, extra){
     <div class="row center">${extra || ''}<button class="btn primary" data-r="again">שוב</button><button class="btn" data-r="quit">חזרה לסט</button></div></div>`;
   app.onclick = e => {
     const r = e.target.closest('[data-r]'), q = e.target.closest('[data-a="quit"]');
-    if (q || (r && r.dataset.r === 'quit')) return viewSet(s);
+    if (q || (r && r.dataset.r === 'quit')) return s ? viewSet(s) : viewHome();
     if (r && r.dataset.r === 'again') return again();
     if (r && r.dataset.r === 'extra') return again(true);
   };
@@ -673,7 +889,7 @@ function startMode(s, mode){
   ({ flash: modeFlash, mcq: modeMcq,
      match: () => modeMatch(s, s.cards.map(c => [c.t, c.d]), 'התאמת זוגות', 'match'),
      case: () => modeMatch(s, casePool(s), 'גדולות וקטנות', 'case'),
-     scr: modeScr, write: modeWrite, lesson: modeLesson, videos: modeVideos, read: modeReadPick })[mode](s);
+     scr: modeScr, write: modeWrite, lesson: modeLesson, videos: modeVideos, read: modeReadPick, review: modeReview, test: modeTest, dict: modeDict })[mode](s);
 }
 
 function modeFlash(s, onlyUnknown, reverse){
@@ -697,6 +913,7 @@ function modeFlash(s, onlyUnknown, reverse){
   function next(knew){
     const c = deck[i];
     if (knew) { s.known[c.id] = true; right++; } else { delete s.known[c.id]; missed.push(c); }
+    srsMark(s, c.id, knew); award(knew);
     saveSoon(s); i++; flipped = false;
     if (i >= deck.length) return resultView(s, 'כרטיסיות', `${right}/${deck.length}`, right === deck.length ? 'ידעת הכול!' : `נשארו ${missed.length} לתרגל`,
       only => modeFlash(s, !!only, reverse), missed.length ? '<button class="btn" data-r="extra">רק מה שלא ידעתי</button>' : '');
@@ -729,6 +946,8 @@ function modeMcq(s){
   draw();
   app.onclick = e => {
     if (e.target.closest('[data-a="quit"]')) return viewSet(s);
+    const why = e.target.closest('[data-why]');
+    if (why) { why.disabled = true; why.textContent = 'חושב…'; explainWhy(qs[i], +why.dataset.why).then(t => why.replaceWith(Object.assign(document.createElement('p'), { className: 'explain', dir: 'auto', textContent: t }))); return; }
     if (e.target.closest('[data-n]')) {
       i++;
       if (i >= qs.length) {
@@ -743,7 +962,8 @@ function modeMcq(s){
     const q = qs[i], pick = +o.dataset.o;
     app.querySelectorAll('.opt').forEach((b, j) => { if (j === q.a) b.classList.add('right'); else if (j === pick) b.classList.add('wrong'); b.disabled = true; });
     if (pick === q.a) right++;
-    document.getElementById('after').innerHTML = `<div class="stack">${q.x ? `<p class="explain" dir="auto">${esc(q.x)}</p>` : ''}<button class="btn primary wide" data-n="1">${i + 1 < qs.length ? 'הבא' : 'לתוצאה'}</button></div>`;
+    srsMark(s, q.id, pick === q.a); award(pick === q.a); saveSoon(s);
+    document.getElementById('after').innerHTML = `<div class="stack">${q.x ? `<p class="explain" dir="auto">${esc(q.x)}</p>` : ''}${pick !== q.a ? `<button class="btn ghost" type="button" data-why="${pick}">🤔 למה זו התשובה?</button>` : ''}<button class="btn primary wide" data-n="1">${i + 1 < qs.length ? 'הבא' : 'לתוצאה'}</button></div>`;
   };
 }
 
@@ -765,11 +985,12 @@ function modeMatch(s, allPairs, title, key){
     if (sel === i) { b.classList.remove('sel'); sel = null; return; }
     const a = tiles[sel], c = tiles[i], ea = els[sel];
     if (a.k === c.k && a.side !== c.side) {
-      ea.classList.add('gone'); b.classList.add('gone'); ea.classList.remove('sel'); done++;
+      ea.classList.add('gone'); b.classList.add('gone'); ea.classList.remove('sel'); done++; award(true);
       if (done === pairs.length) {
         clearInterval(iv); cleanup = null;
         const sec = (Date.now() - t0) / 1000, bk = key + 'Time', best = s.best[bk];
         const isBest = !best || sec < best; if (isBest) { s.best[bk] = Math.round(sec * 10) / 10; saveSoon(s); }
+        if (key === 'match' && s.challenge && s.challenge.m && sec < s.challenge.m && !s.challenge.wonM) { s.challenge.wonM = 1; saveSoon(s); bump({ wins: 1 }); setTimeout(() => toast('🥇 ניצחת את ' + (s.challenge.n || 'החבר') + ' בהתאמת זוגות!'), 500); }
         setTimeout(() => resultView(s, title, sec.toFixed(1) + '″', (isBest ? 'שיא חדש! ' : `השיא שלך ${best}″. `) + (errs ? `${errs} טעויות` : 'בלי טעויות'), () => modeMatch(s, allPairs, title, key)), 350);
       }
     } else {
@@ -848,6 +1069,7 @@ function modeWrite(s){
     const inp = document.getElementById('ans'), c = items[i], v = inp.value; if (!v.trim()) return;
     answered = true; const ok = norm(v) === norm(c.t);
     if (ok) { right++; s.known[c.id] = true; saveSoon(s); }
+    srsMark(s, c.id, ok); award(ok);
     inp.readOnly = true; inp.style.borderColor = ok ? 'var(--ok)' : 'var(--bad)';
     document.getElementById('chk').hidden = true;
     document.getElementById('after').innerHTML = `<div class="stack">${ok ? '<p class="note good">נכון!</p>'

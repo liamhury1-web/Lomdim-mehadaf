@@ -122,6 +122,21 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--ink)}
 .pen path:nth-child(1){stroke:var(--c1)}.pen path:nth-child(2){stroke:var(--c2);animation-delay:.2s}.pen path:nth-child(3){stroke:var(--c3);animation-delay:.4s}
 @keyframes draw{50%{stroke-dashoffset:0}100%{stroke-dashoffset:-120}}
 
+/* progress */
+.statsbar{display:flex;gap:8px;flex-wrap:wrap}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:999px;background:var(--card);border:1.5px solid var(--line);font-weight:800;font-size:14px;font-variant-numeric:tabular-nums}
+.badges{display:flex;gap:6px;flex-wrap:wrap}
+.badge{font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--ink-soft);color:var(--ink)}
+.chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+.chip{flex:none;min-height:36px;padding:0 14px;border-radius:999px;border:1.5px solid var(--line);background:var(--card);color:var(--fg);font:inherit;font-weight:700;font-size:14px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--on-ink)}
+.challenge{background:color-mix(in srgb,var(--hl) 35%,var(--card));border-radius:12px;padding:10px 12px;font-size:14px}
+.folderrow{display:flex;align-items:center;gap:8px}
+.folderrow input{flex:1;min-height:40px;padding:8px 10px;width:auto}
+.backup{gap:8px}
+.dictbtn{min-height:64px;font-size:18px}
+.qflash .q{font-size:26px}
+
 /* mini games */
 .working{padding:22px 18px}
 .gamezone{display:flex;flex-direction:column;gap:10px;background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:14px;box-shadow:var(--shadow)}

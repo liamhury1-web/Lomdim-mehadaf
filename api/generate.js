@@ -45,7 +45,15 @@ export default async function handler(req, res) {
   let b = req.body; if (typeof b === 'string') { try { b = JSON.parse(b); } catch { b = {}; } } b = b || {};
 
   const parts = [];
-  if (b.mode === 'lesson') parts.push({ text: LESSON + String(b.material || '').slice(0, 12000) });
+  if (b.mode === 'explain') {
+    const q = String(b.q || '').slice(0, 1500), opts = Array.isArray(b.options) ? b.options.slice(0, 6).map(x => String(x).slice(0, 300)) : [];
+    parts.push({ text: `A Hebrew-speaking student answered a quiz question wrong. Explain briefly in Hebrew (2-4 short sentences) why the correct answer is right and why their choice is wrong. For math or science, show the short solution steps (Unicode symbols, no LaTeX). Be encouraging.
+Question: ${q}
+Options: ${opts.join(' | ')}
+Correct answer: ${String(b.correct || '').slice(0, 300)}
+Student chose: ${String(b.chosen || '').slice(0, 300)}
+Reply ONLY JSON: {"explain":"..."}` });
+  } else if (b.mode === 'lesson') parts.push({ text: LESSON + String(b.material || '').slice(0, 12000) });
   else if (b.mode === 'text') {
     const t = String(b.text || '').trim().slice(0, 12000);
     const subject = String(b.subject || '').slice(0, 40), level = String(b.level || '').slice(0, 40), lang = String(b.lang || '').slice(0, 12);
