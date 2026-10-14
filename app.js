@@ -6,6 +6,9 @@ const app = document.getElementById('app');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const shuffle = a => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const rid = () => Math.random().toString(36).slice(2, 10);
+const SUBJECTS = ['מתמטיקה', 'אנגלית', 'עברית ולשון', 'מדעים', 'פיזיקה', 'כימיה', 'ביולוגיה', 'היסטוריה', 'גאוגרפיה', 'תנ״ך', 'אזרחות', 'ספרות', 'ערבית', 'צרפתית', 'ספרדית', 'מחשבים ותכנות', 'תזונה ובריאות', 'ידע כללי'];
+const LEVELS = ['כיתה א׳', 'כיתה ב׳', 'כיתה ג׳', 'כיתה ד׳', 'כיתה ה׳', 'כיתה ו׳', 'כיתה ז׳', 'כיתה ח׳', 'כיתה ט׳', 'כיתה י׳', 'כיתה י״א', 'כיתה י״ב', 'אוניברסיטה', 'מבוגרים'];
+const LANGS = [['he', 'עברית'], ['en', 'English'], ['ar', 'العربية'], ['fr', 'Français'], ['es', 'Español'], ['ru', 'Русский'], ['de', 'Deutsch'], ['it', 'Italiano'], ['pt', 'Português'], ['am', 'አማርኛ'], ['zh', '中文'], ['ja', '日本語']];
 const isRtl = s => /[֐-׿؀-ۿ]/.test(s);
 const lettersOnly = /^\p{L}{2,14}$/u;
 let toastT;
@@ -65,7 +68,7 @@ function fixSet(s){
   return { id: s.id || ('s' + rid()), title: s.title || 'סט ללא שם', created: s.created || Date.now(), updated: s.updated || Date.now(),
     color: Number.isInteger(s.color) ? Math.abs(s.color) % 6 : sets.length % 6,
     termLang: s.termLang || '', defLang: s.defLang || '', alphabet: !!s.alphabet, example: !!s.example,
-    cards: arr(s.cards), mcq: arr(s.mcq), scr: arr(s.scr), topics: arr(s.topics), lesson: arr(s.lesson),
+    cards: arr(s.cards), mcq: arr(s.mcq), scr: arr(s.scr), topics: arr(s.topics), lesson: arr(s.lesson), reading: arr(s.reading),
     known: s.known && typeof s.known === 'object' ? s.known : {}, best: s.best && typeof s.best === 'object' ? s.best : {} };
 }
 
@@ -82,7 +85,12 @@ function normalize(r){
       .filter(m => m.q && m.o.length >= 2 && m.o.length <= 6 && Number.isInteger(m.a) && m.a >= 0 && m.a < m.o.length),
     scr: arr(o.scramble).map(s => ({ w: str(s && s.word), h: str(s && s.hint) })).filter(s => lettersOnly.test(s.w)),
     topics: arr(o.topics).map(t => ({ name: str(t && t.name).slice(0, 80), q: str(t && t.query).slice(0, 120) })).filter(t => t.name && t.q),
-    lesson: arr(o.lesson).map(x => ({ h: str(x && x.title).slice(0, 100), b: str(x && x.body).slice(0, 3000) })).filter(x => x.h && x.b)
+    lesson: arr(o.lesson).map(x => ({ h: str(x && x.title).slice(0, 100), b: str(x && x.body).slice(0, 3000) })).filter(x => x.h && x.b),
+    reading: (Array.isArray(o.reading) ? o.reading : (o.reading ? [o.reading] : [])).map(r => ({
+      title: str(r && r.title).slice(0, 100), lang: str(r && r.lang).slice(0, 12), text: str(r && r.text).slice(0, 6000), instr: str(r && r.instructions).slice(0, 300),
+      q: arr(r && r.questions).map(m => { const opts = arr(m && m.options).map(str).filter(Boolean); return { q: str(m && m.q), o: opts, a: Number(m && m.answer), x: str(m && m.explain) }; })
+        .filter(m => m.q && m.o.length >= 2 && m.o.length <= 6 && Number.isInteger(m.a) && m.a >= 0 && m.a < m.o.length)
+    })).filter(r => r.text.length > 40)
   };
 }
 function mergeInto(s, p){
@@ -97,6 +105,7 @@ function mergeInto(s, p){
   const tk = new Set(s.topics.map(t => t.name));
   (p.topics || []).forEach(t => { if (!tk.has(t.name)) { tk.add(t.name); s.topics.push(t); } });
   (p.lesson || []).forEach(x => s.lesson.push(x));
+  (p.reading || []).forEach(r => s.reading.push({ id: 'r' + rid(), ...r }));
 }
 
 /* ---------------- server calls ---------------- */
@@ -145,7 +154,8 @@ function unb64url(str){ str = str.replace(/-/g, '+').replace(/_/g, '/'); while (
 async function encodeSet(s){
   const slim = { t: s.title, tl: s.termLang, dl: s.defLang, a: s.alphabet ? 1 : 0, k: s.color,
     c: s.cards.map(c => [c.t, c.d]), q: s.mcq.map(m => [m.q, m.o, m.a, m.x]), w: s.scr.map(x => [x.w, x.h]),
-    tp: s.topics.map(t => [t.name, t.q]), l: s.lesson.map(x => [x.h, x.b]) };
+    tp: s.topics.map(t => [t.name, t.q]), l: s.lesson.map(x => [x.h, x.b]),
+    r: s.reading.map(r => [r.title, r.lang, r.text, r.q.map(m => [m.q, m.o, m.a, m.x]), r.instr || '']) };
   const bytes = new TextEncoder().encode(JSON.stringify(slim));
   if ('CompressionStream' in window) {
     try { const st = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw')); return 'z' + b64url(new Uint8Array(await new Response(st).arrayBuffer())); } catch(e){}
@@ -162,7 +172,8 @@ async function decodeSet(str){
   const s = fixSet({ title: String(o.t || 'סט משותף').slice(0, 60), termLang: o.tl, defLang: o.dl, alphabet: !!o.a, color: Number.isInteger(o.k) ? o.k : 0 });
   mergeInto(s, normalize({
     cards: arr(o.c).map(x => ({ term: x[0], def: x[1] })), mcq: arr(o.q).map(x => ({ q: x[0], options: x[1], answer: x[2], explain: x[3] })),
-    scramble: arr(o.w).map(x => ({ word: x[0], hint: x[1] })), topics: arr(o.tp).map(x => ({ name: x[0], query: x[1] })), lesson: arr(o.l).map(x => ({ title: x[0], body: x[1] }))
+    scramble: arr(o.w).map(x => ({ word: x[0], hint: x[1] })), topics: arr(o.tp).map(x => ({ name: x[0], query: x[1] })), lesson: arr(o.l).map(x => ({ title: x[0], body: x[1] })),
+    reading: arr(o.r).map(x => ({ title: x[0], lang: x[1], text: x[2], instructions: x[4] || '', questions: arr(x[3]).map(m => ({ q: m[0], options: m[1], answer: m[2], explain: m[3] })) }))
   }));
   return s;
 }
@@ -202,6 +213,7 @@ function setStats(s){
   const p = [];
   if (s.cards.length) p.push(s.cards.length + ' כרטיסיות');
   if (s.mcq.length) p.push(s.mcq.length + ' שאלות');
+  if (s.reading.length) p.push(s.reading.length === 1 ? 'קטע קריאה' : s.reading.length + ' קטעי קריאה');
   if (s.lesson.length) p.push('שיעור');
   return p.join(' · ') || 'ריק';
 }
@@ -271,7 +283,16 @@ function viewCreate(errMsg){
     <div class="divider">או כתוב נושא</div>
     <section class="panel stack">
       <label class="stack" for="topic" style="gap:6px"><span class="small muted">נושא שתרצה ללמוד, או סיכום שתדביק כאן</span>
-        <textarea id="topic" rows="3" placeholder="למשל: שאלות על תזונה נכונה לכיתה ח׳&#10;או: מילים באנגלית על מזג אוויר"></textarea></label>
+        <textarea id="topic" rows="3" placeholder="למשל: משוואות עם נעלם אחד&#10;או: סיפור קצר באנגלית על חיות&#10;או: שאלות על תזונה נכונה"></textarea></label>
+      <div class="pickrow">
+        <label for="subj"><span class="small muted">מקצוע</span>
+          <select id="subj"><option value="">כל נושא</option>${SUBJECTS.map(x => `<option>${x}</option>`).join('')}</select></label>
+        <label for="lvl"><span class="small muted">רמה</span>
+          <select id="lvl"><option value="">רגילה</option>${LEVELS.map(x => `<option>${x}</option>`).join('')}</select></label>
+        <label for="lng"><span class="small muted">שפה</span>
+          <select id="lng"><option value="">אוטומטי</option>${LANGS.map(([v, n]) => `<option value="${v}">${n}</option>`).join('')}</select></label>
+      </div>
+      <label class="row small" for="wantread" style="gap:8px"><input type="checkbox" id="wantread"> הוסף סיפור לקריאה עם שאלות</label>
       <button class="btn primary wide" type="button" data-a="text">צור תרגול מהטקסט</button>
     </section>
     <div class="divider">או הקלדה ידנית</div>
@@ -306,8 +327,10 @@ function viewCreate(errMsg){
       case 'go': return generate(target, document.getElementById('note').value.trim());
       case 'text': {
         const t = document.getElementById('topic').value.trim();
-        if (t.length < 3) return toast('כתוב נושא או הדבק טקסט');
-        return generateText(target, t);
+        const opts = { subject: document.getElementById('subj').value, level: document.getElementById('lvl').value,
+          lang: document.getElementById('lng').value, reading: document.getElementById('wantread').checked };
+        if (t.length < 3 && !opts.subject && !opts.lang) return toast('כתוב נושא, או בחר מקצוע או שפה');
+        return generateText(target, t, opts);
       }
       case 'manual': {
         const lines = document.getElementById('manual').value.split('\n').map(l => l.trim()).filter(Boolean);
@@ -334,29 +357,31 @@ function viewNeedCode(retry){
   app.onsubmit = e => { e.preventDefault(); const v = document.getElementById('code').value.trim(); if (!v) return; lset(CODEKEY, v); retry(); };
 }
 
-async function generateText(target, text){
+async function generateText(target, text, opts){
+  opts = opts || {};
+  const label = [opts.subject, opts.level, text].filter(Boolean).join(' · ') || 'תרגול חדש';
   leave(); curView = 'working';
   app.innerHTML = `
     <div class="panel working">
       <svg class="pen" viewBox="0 0 64 64" aria-hidden="true"><path d="M6 22c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/><path d="M6 36c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/><path d="M6 50c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/></svg>
       <h2>בונה תרגול</h2>
-      <p class="muted" dir="auto">${esc(text.length > 80 ? text.slice(0, 78) + '…' : text)}</p>
+      <p class="muted" dir="auto">${esc(label.length > 80 ? label.slice(0, 78) + '…' : label)}</p>
       <p class="small muted">זה לוקח בדרך כלל חצי דקה עד דקה.</p>
       <button class="btn" type="button" data-a="stop">עצור</button>
     </div>`;
   const ctl = new AbortController();
   app.onclick = e => { if (e.target.closest('[data-a="stop"]')) ctl.abort(); };
   try {
-    const data = await callApi({ mode: 'text', text }, ctl.signal);
+    const data = await callApi({ mode: 'text', text, subject: opts.subject || '', level: opts.level || '', lang: opts.lang || '', reading: !!opts.reading }, ctl.signal);
     const part = normalize(data && data.result);
-    if (!(part.cards.length || part.mcq.length)) throw { code: 'empty' };
+    if (!(part.cards.length || part.mcq.length || part.reading.length)) throw { code: 'empty' };
     const s = target || fixSet({ title: '' });
     mergeInto(s, part);
-    if (!s.title || s.title === 'סט ללא שם') s.title = text.slice(0, 40);
+    if (!s.title || s.title === 'סט ללא שם') s.title = label.slice(0, 40);
     saveSet(s); viewSet(s);
   } catch(e) {
     if (e && e.name === 'AbortError') return viewCreate();
-    if (e && e.code === 'need_code') return viewNeedCode(() => generateText(target, text));
+    if (e && e.code === 'need_code') return viewNeedCode(() => generateText(target, text, opts));
     viewCreate(e && e.code === 'empty' ? 'לא הצלחתי לבנות תרגול מהטקסט. נסה לנסח את הנושא אחרת.' : errText(e));
     const ta = document.getElementById('topic'); if (ta) ta.value = text;
   }
@@ -452,6 +477,7 @@ function viewSet(s){
       { id:'case', c:4, ic:I.Aa, name:'גדולות וקטנות', sub: cp.length >= 3 ? 'A ↔ a ומילים באותיות גדולות' : 'רק לסטים באנגלית', ok: cp.length >= 3 },
       { id:'write', c:5, ic:I.pen, name:'כתיבה', sub:'רואים פירוש, כותבים את המילה', ok: s.cards.length > 0 },
       { id:'lesson', c:3, ic:I.book, name:'שיעור קצר', sub: s.lesson.length ? 'הסבר על החומר' : 'ייווצר בלחיצה', ok: s.lesson.length > 0 || s.cards.length + s.mcq.length > 0 },
+      { id:'read', c:5, ic:I.book, name:'קטע קריאה', sub: s.reading.length ? (s.reading.length === 1 ? 'טקסט ושאלות הבנה' : s.reading.length + ' טקסטים') : 'אין בסט הזה', ok: s.reading.length > 0 },
       { id:'videos', c:1, ic:I.play, name:'סרטונים', sub: s.topics.length ? s.topics.length + ' נושאים ביוטיוב' : 'חיפוש ביוטיוב', ok: true }
     ];
     const listHtml = () => {
@@ -548,7 +574,7 @@ function startMode(s, mode){
   ({ flash: modeFlash, mcq: modeMcq,
      match: () => modeMatch(s, s.cards.map(c => [c.t, c.d]), 'התאמת זוגות', 'match'),
      case: () => modeMatch(s, casePool(s), 'גדולות וקטנות', 'case'),
-     scr: modeScr, write: modeWrite, lesson: modeLesson, videos: modeVideos })[mode](s);
+     scr: modeScr, write: modeWrite, lesson: modeLesson, videos: modeVideos, read: modeReadPick })[mode](s);
 }
 
 function modeFlash(s, onlyUnknown, reverse){
@@ -776,6 +802,52 @@ function modeLesson(s){
     if (e.target.closest('[data-a="videos"]')) return modeVideos(s);
   };
 }
+function modeReadPick(s){
+  if (s.reading.length === 1) return modeRead(s, s.reading[0]);
+  leave(); curView = 'practice'; tint(s.color);
+  app.innerHTML = `${topbar('קטעי קריאה')}<div class="stack">${s.reading.map((r, i) => `<button class="vid" data-c="${i % 6}" data-r="${i}"><span class="play">${I.book}</span><span class="grow"><strong dir="auto">${esc(r.title || 'קטע ' + (i + 1))}</strong><span class="small muted">${r.q.length} שאלות</span></span></button>`).join('')}</div>`;
+  app.onclick = e => {
+    if (e.target.closest('[data-a="quit"]')) return viewSet(s);
+    const b = e.target.closest('[data-r]'); if (b) modeRead(s, s.reading[+b.dataset.r]);
+  };
+}
+// "Question? (תרגום)" → question on one line, Hebrew translation under it
+function bi(t){
+  const m = String(t).match(/^([\s\S]*?)\s*\(([^()]*[\u0590-\u05FF][^()]*)\)\s*\.?$/);
+  if (!m || !m[1].trim() || isRtl(m[1])) return `<span dir="auto">${esc(t)}</span>`;
+  return `<span dir="auto">${esc(m[1])}</span><span class="tr" dir="rtl">${esc(m[2])}</span>`;
+}
+function modeRead(s, r){
+  leave(); curView = 'practice'; tint(s.color);
+  let right = 0, done = 0;
+  app.innerHTML = `${topbar('קטע קריאה', r.q.length ? '0/' + r.q.length : '')}
+    <article class="panel stack reading" lang="${esc(r.lang || '')}">
+      <div class="row between" style="align-items:flex-start"><h2 class="grow" dir="auto">${esc(r.title)}</h2>${sayBtn(r.text, r.lang)}</div>
+      ${r.instr ? `<p class="explain bi">${bi(r.instr)}</p>` : ''}
+      ${r.text.split(/\n+/).filter(Boolean).map(p => `<p dir="auto">${esc(p)}</p>`).join('')}
+    </article>
+    ${r.q.length ? `<h3>שאלות הבנה</h3>` : ''}
+    <div class="stack">${r.q.map((m, i) => `<div class="panel stack" data-qi="${i}"><p class="q bi">${bi(m.q)}</p>
+      <div class="opts">${m.o.map((o, j) => `<button class="opt" data-c="${j % 6}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span><span dir="auto">${esc(o)}</span></button>`).join('')}</div>
+      <div class="after"></div></div>`).join('')}</div>
+    <div id="rres"></div>`;
+  app.onclick = e => {
+    if (e.target.closest('[data-a="quit"]')) return viewSet(s);
+    if (e.target.closest('[data-r2]')) return modeRead(s, r);
+    if (e.target.closest('[data-back]')) return viewSet(s);
+    const o = e.target.closest('[data-o]'); if (!o) return;
+    const box = o.closest('[data-qi]'); if (!box || box.dataset.done) return;
+    box.dataset.done = '1';
+    const m = r.q[+box.dataset.qi], pick = +o.dataset.o;
+    box.querySelectorAll('.opt').forEach((b, j) => { if (j === m.a) b.classList.add('right'); else if (j === pick) b.classList.add('wrong'); b.disabled = true; });
+    if (pick === m.a) right++;
+    done++;
+    if (m.x) box.querySelector('.after').innerHTML = `<p class="explain" dir="auto">${esc(m.x)}</p>`;
+    document.getElementById('cnt').textContent = done + '/' + r.q.length;
+    if (done === r.q.length) document.getElementById('rres').innerHTML = `<div class="panel result"><div class="score">${right}/${r.q.length}</div><p>תשובות נכונות</p><div class="row center"><button class="btn primary" data-r2="1">שוב</button><button class="btn" data-back="1">חזרה לסט</button></div></div>`;
+  };
+}
+
 function modeVideos(s){
   leave(); curView = 'practice'; tint(s.color);
   const yt = q => 'https://www.youtube.com/results?search_query=' + encodeURIComponent(q);

@@ -3,15 +3,30 @@
 const MODELS = (process.env.GEMINI_MODEL || 'gemini-flash-latest,gemini-flash-lite-latest,gemini-2.5-flash,gemini-2.5-flash-lite').split(',');
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
-const FORMAT = `Keep terms in their language; translate to Hebrew if no translation is given. Explanations: one short Hebrew sentence. Math: Unicode, no LaTeX.
+const FORMAT = `Keep terms in their language; translate to Hebrew if no translation is given. Explanations: short and in Hebrew. Math: Unicode (x², √, ½, ×, ÷, π), no LaTeX.
+Math, physics and chemistry: every question must have exactly one correct option. Solve each one step by step before writing it, double-check the arithmetic, and put the short solution steps in "explain". Wrong options should come from typical mistakes.
 Reply ONLY JSON:
 {"title":"Hebrew topic, max 40 chars","termLang":"en","defLang":"he","alphabet":false,
 "cards":[{"term":"","def":""}],
 "mcq":[{"q":"","options":["","","",""],"answer":0,"explain":""}],
 "scramble":[{"word":"","hint":""}],
 "topics":[{"name":"Hebrew topic","query":"YouTube search"}],
-"lesson":[{"title":"Hebrew heading","body":"Hebrew explanation with example, paragraphs split by \\n"}]}
-cards 6-40, mcq 6-20 (vary answer position), scramble only single words 3-12 letters, topics 2-5, lesson 3-6 sections. alphabet true only if the material teaches letters.`;
+"lesson":[{"title":"Hebrew heading","body":"Hebrew explanation with example, paragraphs split by \\n"}],
+"reading":[{"title":"","lang":"BCP-47 of the text","instructions":"","text":"passage, paragraphs split by \\n","questions":[{"q":"","options":["","","",""],"answer":0,"explain":""}]}]}
+cards 6-40, mcq 6-20 (vary answer position), scramble only single words 3-12 letters, topics 2-5, lesson 3-6 sections. reading: [] unless asked for a reading passage or the material is itself a reading passage.
+Reading passages: a story or text in the target language, with 4-6 comprehension questions.
+- For a foreign language (English, French, Arabic...): "instructions", every question "q" and every option are in the target language, and after the instructions and after each question add the Hebrew translation in parentheses, e.g. "Who found the dog? (מי מצא את הכלב?)". "explain" in Hebrew.
+- For Hebrew or other school subjects: all in Hebrew.
+- Match the student's grade (Israeli school, foreign language for English):
+  grade 1-2: 30-60 words, very short present-simple sentences, basic everyday words;
+  grade 3-4: 60-100 words, simple sentences, present and simple past;
+  grade 5-6: 100-160 words, short paragraphs, common connectors;
+  grade 7-8: 150-220 words, past and future, some descriptive words;
+  grade 9: 200-280 words, varied tenses and linking words;
+  grade 10-11: 250-350 words, richer vocabulary, some inference questions;
+  grade 12 / bagrut: 300-450 words, bagrut-level text, inference and vocabulary-in-context questions;
+  no grade given: grade 7-8. For native Hebrew readers use the same lengths with age-appropriate richer language.
+alphabet true only if the material teaches letters.`;
 
 const PAGES = `Study pages from a Hebrew-speaking student in Israel. Turn them into quiz material. Use only what is on the pages; for exercises you may write similar new ones, solved correctly. `;
 
@@ -33,8 +48,12 @@ export default async function handler(req, res) {
   if (b.mode === 'lesson') parts.push({ text: LESSON + String(b.material || '').slice(0, 12000) });
   else if (b.mode === 'text') {
     const t = String(b.text || '').trim().slice(0, 12000);
-    if (t.length < 3) return res.status(400).json({ code: 'bad_request' });
-    parts.push({ text: TEXT + t + '\n"""\n\n' + FORMAT });
+    const subject = String(b.subject || '').slice(0, 40), level = String(b.level || '').slice(0, 40), lang = String(b.lang || '').slice(0, 12);
+    if (t.length < 3 && !subject && !lang) return res.status(400).json({ code: 'bad_request' });
+    const extra = [subject && 'Subject: ' + subject, level && 'Level: ' + level,
+      lang && 'Target language: ' + lang + ' (write the study content, words, sentences and texts in this language; explanations stay in Hebrew)',
+      b.reading && 'Include 1 reading passage with comprehension questions in "reading".'].filter(Boolean).join('\n');
+    parts.push({ text: TEXT + (t || '(no text, build a good general set from the settings below)') + '\n"""\n' + extra + '\n\n' + FORMAT });
   } else {
     const im = Array.isArray(b.images) ? b.images.slice(0, 4) : [];
     if (!im.length) return res.status(400).json({ code: 'bad_request' });
