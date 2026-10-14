@@ -3,18 +3,7 @@
 const MODELS = (process.env.GEMINI_MODEL || 'gemini-flash-latest,gemini-flash-lite-latest,gemini-2.5-flash,gemini-2.5-flash-lite').split(',');
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
-const FORMAT = `Keep terms in their language; translate to Hebrew if no translation is given. Explanations: short and in Hebrew. Math: Unicode (x², √, ½, ×, ÷, π), no LaTeX.
-Math, physics and chemistry: every question must have exactly one correct option. Solve each one step by step before writing it, double-check the arithmetic, and put the short solution steps in "explain". Wrong options should come from typical mistakes.
-Reply ONLY JSON:
-{"title":"Hebrew topic, max 40 chars","termLang":"en","defLang":"he","alphabet":false,
-"cards":[{"term":"","def":""}],
-"mcq":[{"q":"","options":["","","",""],"answer":0,"explain":""}],
-"scramble":[{"word":"","hint":""}],
-"topics":[{"name":"Hebrew topic","query":"YouTube search"}],
-"lesson":[{"title":"Hebrew heading","body":"Hebrew explanation with example, paragraphs split by \\n"}],
-"reading":[{"title":"","lang":"BCP-47 of the text","instructions":"","text":"passage, paragraphs split by \\n","questions":[{"q":"","options":["","","",""],"answer":0,"explain":""}]}]}
-cards 6-40, mcq 6-20 (vary answer position), scramble only single words 3-12 letters, topics 2-5, lesson 3-6 sections. reading: [] unless asked for a reading passage or the material is itself a reading passage.
-Reading passages: a story or text in the target language, with 4-6 comprehension questions.
+const READING = `Reading passages: a story or text in the target language, with 4-6 comprehension questions.
 - For a foreign language (English, French, Arabic...): "instructions", every question "q" and every option are in the target language, and after the instructions and after each question add the Hebrew translation in parentheses, e.g. "Who found the dog? (מי מצא את הכלב?)". "explain" in Hebrew.
 - For Hebrew or other school subjects: all in Hebrew.
 - Match the student's grade (Israeli school, foreign language for English):
@@ -26,7 +15,20 @@ Reading passages: a story or text in the target language, with 4-6 comprehension
   grade 10-11: 250-350 words, richer vocabulary, some inference questions;
   grade 12 / bagrut: 300-450 words, bagrut-level text, inference and vocabulary-in-context questions;
   no grade given: grade 7-8. For native Hebrew readers use the same lengths with age-appropriate richer language.
-alphabet true only if the material teaches letters.`;
+`;
+
+const FORMAT = `Keep terms in their language; translate to Hebrew if no translation is given. Explanations: short and in Hebrew. Math: Unicode (x², √, ½, ×, ÷, π), no LaTeX.
+Math, physics and chemistry: every question must have exactly one correct option. Solve each one step by step before writing it, double-check the arithmetic, and put the short solution steps in "explain". Wrong options should come from typical mistakes.
+Reply ONLY JSON:
+{"title":"Hebrew topic, max 40 chars","termLang":"en","defLang":"he","alphabet":false,
+"cards":[{"term":"","def":""}],
+"mcq":[{"q":"","options":["","","",""],"answer":0,"explain":""}],
+"scramble":[{"word":"","hint":""}],
+"topics":[{"name":"Hebrew topic","query":"YouTube search"}],
+"lesson":[{"title":"Hebrew heading","body":"Hebrew explanation with example, paragraphs split by \\n"}],
+"reading":[{"title":"","lang":"BCP-47 of the text","instructions":"","text":"passage, paragraphs split by \\n","questions":[{"q":"","options":["","","",""],"answer":0,"explain":""}]}]}
+cards 6-40, mcq 6-20 (vary answer position), scramble only single words 3-12 letters, topics 2-5, lesson 3-6 sections. reading: [] unless asked for a reading passage or the material is itself a reading passage.
+${READING}alphabet true only if the material teaches letters.`;
 
 const PAGES = `Study pages from a Hebrew-speaking student in Israel. Turn them into quiz material. Use only what is on the pages; for exercises you may write similar new ones, solved correctly. `;
 
@@ -34,6 +36,11 @@ const TEXT = `A Hebrew-speaking student in Israel wrote what they want to study.
 The student wrote:
 """
 `;
+
+
+const LANG_NAMES = { he:'Hebrew', en:'English', ar:'Arabic', fr:'French', es:'Spanish', ru:'Russian', de:'German', it:'Italian', pt:'Portuguese', am:'Amharic', zh:'Chinese (simplified, add pinyin in parentheses after hard words)', ja:'Japanese (mostly hiragana for beginners)' };
+const GENRES = { adventure:'adventure', funny:'funny / humorous', animals:'animals', sport:'sport', science:'science and nature (accurate facts)', mystery:'mystery / detective', daily:'everyday life (school, family, friends)', fantasy:'fantasy / magic' };
+const SETTINGS = ['a city park', 'a space station', 'a desert trip', 'a school trip', 'a farm', 'a museum', 'a beach', 'a snowy village', 'a football match', 'a train', 'a market', 'a forest camp', 'a science fair', 'a birthday party', 'an old library', 'a rainy day at home', 'a zoo', 'a boat', 'a mountain hike', 'a robot workshop'];
 
 const LESSON = `A Hebrew-speaking student studies this material. Write a simple Hebrew lesson and video topics. Reply ONLY JSON: {"lesson":[{"title":"","body":""}],"topics":[{"name":"","query":"YouTube search"}]}. lesson 3-6 sections, topics 2-5.\n\n`;
 
@@ -53,6 +60,19 @@ Options: ${opts.join(' | ')}
 Correct answer: ${String(b.correct || '').slice(0, 300)}
 Student chose: ${String(b.chosen || '').slice(0, 300)}
 Reply ONLY JSON: {"explain":"..."}` });
+  } else if (b.mode === 'story') {
+    const lang = String(b.lang || 'en').slice(0, 5), level = String(b.level || '').slice(0, 40);
+    const genre = GENRES[b.genre] || 'any genre you like, be creative and surprising';
+    const avoid = (Array.isArray(b.avoid) ? b.avoid : []).slice(-15).map(x => String(x).slice(0, 80)).filter(Boolean);
+    const idea = String(b.idea || '').slice(0, 200), words = String(b.words || '').slice(0, 600);
+    parts.push({ text: `Write ONE new reading passage for a Hebrew-speaking student in Israel.
+Language of the passage: ${LANG_NAMES[lang] || lang}. Student level: ${level || 'grade 7-8'}. Genre: ${genre}.
+${idea ? 'The student asked for: "' + idea + '"' : 'Possible setting (only if it fits the genre): ' + SETTINGS[Math.floor(Math.random() * SETTINGS.length)] + '.'}
+${avoid.length ? 'It must be clearly different (topic, characters, setting) from these earlier passages: ' + avoid.join(' | ') + '.' : ''}
+${words ? 'If it fits naturally, use a few of these words the student is learning: ' + words : ''}
+Give it a short title in the passage language${lang === 'he' ? '' : ' with the Hebrew translation in parentheses'}.
+${READING}
+Reply ONLY JSON: {"reading":[{"title":"","lang":"${lang}","instructions":"","text":"paragraphs split by \\n","questions":[{"q":"","options":["","","",""],"answer":0,"explain":""}]}]}` });
   } else if (b.mode === 'lesson') parts.push({ text: LESSON + String(b.material || '').slice(0, 12000) });
   else if (b.mode === 'text') {
     const t = String(b.text || '').trim().slice(0, 12000);
@@ -69,7 +89,7 @@ Reply ONLY JSON: {"explain":"..."}` });
     parts.push({ text: PAGES + FORMAT + (b.note ? '\nStudent note: ' + String(b.note).slice(0, 300) : '') });
   }
 
-  const body = JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 16000 } });
+  const body = JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 16000, ...(b.mode === 'story' ? { temperature: 1.2 } : {}) } });
   let last = 503;
   for (let n = 0; n < 2; n++) for (const M of MODELS) {
     try {

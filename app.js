@@ -70,7 +70,7 @@ function fixSet(s){
     termLang: s.termLang || '', defLang: s.defLang || '', alphabet: !!s.alphabet, example: !!s.example,
     cards: arr(s.cards), mcq: arr(s.mcq), scr: arr(s.scr), topics: arr(s.topics), lesson: arr(s.lesson), reading: arr(s.reading),
     known: s.known && typeof s.known === 'object' ? s.known : {}, best: s.best && typeof s.best === 'object' ? s.best : {},
-    srs: s.srs && typeof s.srs === 'object' ? s.srs : {}, folder: typeof s.folder === 'string' ? s.folder.slice(0, 40) : '', challenge: s.challenge && typeof s.challenge === 'object' ? s.challenge : null };
+    srs: s.srs && typeof s.srs === 'object' ? s.srs : {}, folder: typeof s.folder === 'string' ? s.folder.slice(0, 40) : '', level: typeof s.level === 'string' ? s.level.slice(0, 30) : '', learn: typeof s.learn === 'string' ? s.learn.slice(0, 5) : '', challenge: s.challenge && typeof s.challenge === 'object' ? s.challenge : null };
 }
 
 /* ---------------- shaping the AI answer ---------------- */
@@ -679,6 +679,8 @@ async function generateText(target, text, opts){
     mergeInto(s, part);
     if (!s.title || s.title === 'סט ללא שם') s.title = label.slice(0, 40);
     if (!target && opts.subject && !s.folder) s.folder = opts.subject;
+    if (opts.level) s.level = opts.level;
+    if (opts.lang && opts.lang !== 'he') s.learn = opts.lang;
     saveSet(s); viewSet(s);
   } catch(e) {
     if (e && e.name === 'AbortError') return viewCreate();
@@ -832,7 +834,7 @@ function viewSet(s){
       { id:'case', c:4, ic:I.Aa, name: ci.name, sub: ci.sub, ok: cp.length >= 3, hide: !!ci.hide },
       { id:'write', c:5, ic:I.pen, name:'כתיבה', sub:'רואים פירוש, כותבים את המילה', ok: s.cards.length > 0 },
       { id:'lesson', c:3, ic:I.book, name:'שיעור קצר', sub: s.lesson.length ? 'הסבר על החומר' : 'ייווצר בלחיצה', ok: s.lesson.length > 0 || s.cards.length + s.mcq.length > 0 },
-      { id:'read', c:5, ic:I.book, name:'קטע קריאה', sub: s.reading.length ? (s.reading.length === 1 ? 'טקסט ושאלות הבנה' : s.reading.length + ' טקסטים') : 'אין בסט הזה', ok: s.reading.length > 0 },
+      { id:'read', c:5, ic:I.book, name:'קטע קריאה', sub: s.reading.length ? (s.reading.length === 1 ? 'סיפור אחד · אפשר להוסיף עוד' : s.reading.length + ' סיפורים · אפשר להוסיף עוד') : 'צור סיפור עם שאלות', ok: true },
       { id:'videos', c:1, ic:I.play, name:'סרטונים', sub: s.topics.length ? s.topics.length + ' נושאים ביוטיוב' : 'חיפוש ביוטיוב', ok: true }
     ];
     const listHtml = () => {
@@ -1174,13 +1176,77 @@ function modeLesson(s){
   };
 }
 function modeReadPick(s){
+  if (!s.reading.length) return modeStoryNew(s);
   if (s.reading.length === 1) return modeRead(s, s.reading[0]);
   leave(); curView = 'practice'; tint(s.color);
-  app.innerHTML = `${topbar('קטעי קריאה')}<div class="stack">${s.reading.map((r, i) => `<button class="vid" data-c="${i % 6}" data-r="${i}"><span class="play">${I.book}</span><span class="grow"><strong dir="auto">${esc(r.title || 'קטע ' + (i + 1))}</strong><span class="small muted">${r.q.length} שאלות</span></span></button>`).join('')}</div>`;
+  app.innerHTML = `${topbar('קטעי קריאה')}<button class="btn primary wide" data-a="newstory">📖 סיפור חדש</button>
+    <div class="stack">${s.reading.map((r, i) => `<button class="vid" data-c="${i % 6}" data-r="${i}"><span class="play">${I.book}</span><span class="grow"><strong dir="auto">${esc(r.title || 'קטע ' + (i + 1))}</strong><span class="small muted">${r.q.length} שאלות${r.genre ? ' · ' + esc((GENRES.find(g => g[0] === r.genre) || ['', ''])[1]) : ''}</span></span></button>`).reverse().join('')}</div>`;
   app.onclick = e => {
     if (e.target.closest('[data-a="quit"]')) return viewSet(s);
+    if (e.target.closest('[data-a="newstory"]')) return modeStoryNew(s);
     const b = e.target.closest('[data-r]'); if (b) modeRead(s, s.reading[+b.dataset.r]);
   };
+}
+const GENRES = [['', '🎲 הפתע אותי'], ['adventure', '🗺️ הרפתקה'], ['funny', '😂 מצחיק'], ['animals', '🐾 חיות'], ['sport', '⚽ ספורט'], ['science', '🔬 מדע וטבע'], ['mystery', '🕵️ מסתורין'], ['daily', '🏠 יום-יום'], ['fantasy', '🐉 פנטזיה']];
+const SCRIPT_LANG = { lat: 'en', cyr: 'ru', ara: 'ar', kana: 'ja', han: 'zh', eth: 'am' };
+// the language the student is learning; Hebrew only when the set has no foreign language at all
+function learnCode(s){
+  if (s.learn) return s.learn;
+  const code = [...s.reading.map(r => r.lang), s.termLang, s.defLang].map(x => String(x || '').slice(0, 2).toLowerCase()).find(x => x && x !== 'he' && LANGS.some(l => l[0] === x));
+  if (code) return code;
+  const txt = s.cards.map(c => c.t + ' ' + c.d).join(' ').replace(/\p{Script=Hebrew}/gu, '');
+  for (const k of ['cyr', 'ara', 'kana', 'han', 'eth', 'lat']) if ((txt.match(new RegExp(SCRIPTS[k].source, 'gu')) || []).length >= 6) return SCRIPT_LANG[k];
+  return 'he';
+}
+function modeStoryNew(s){
+  leave(); curView = 'practice'; tint(s.color);
+  let genre = '';
+  const lang = learnCode(s), level = s.level || 'כיתה ז׳';
+  app.innerHTML = `${topbar('סיפור חדש')}
+    <section class="panel stack">
+      <span class="small muted">איזה סיפור?</span>
+      <div class="chips wrap" role="group" aria-label="סוג הסיפור">${GENRES.map(g => `<button type="button" class="chip" data-g="${g[0]}" aria-pressed="${g[0] === genre}">${g[1]}</button>`).join('')}</div>
+      <div class="pickrow two">
+        <label for="slvl"><span class="small muted">רמה</span><select id="slvl">${LEVELS.map(x => `<option ${x === level ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
+        <label for="slng"><span class="small muted">שפה</span><select id="slng">${LANGS.map(([v, n]) => `<option value="${v}" ${v === lang ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+      </div>
+      <label class="stack" for="sidea" style="gap:6px"><span class="small muted">רעיון משלך (לא חובה)</span><input type="text" id="sidea" maxlength="150" placeholder="למשל: ילד שמוצא חתול בגשם" dir="auto"></label>
+      <button class="btn primary wide" type="button" data-a="mkstory">📖 צור סיפור</button>
+      ${s.reading.length ? `<button class="btn wide" type="button" data-a="list">לסיפורים הקודמים (${s.reading.length})</button>` : ''}
+    </section>`;
+  app.onclick = e => {
+    if (e.target.closest('[data-a="quit"]')) return viewSet(s);
+    if (e.target.closest('[data-a="list"]')) return s.reading.length === 1 ? modeRead(s, s.reading[0]) : modeReadPick(s);
+    const g = e.target.closest('[data-g]');
+    if (g) { genre = g.dataset.g; app.querySelectorAll('[data-g]').forEach(b => b.setAttribute('aria-pressed', String(b === g))); return; }
+    if (e.target.closest('[data-a="mkstory"]')) {
+      const lv = document.getElementById('slvl').value, lg = document.getElementById('slng').value;
+      s.level = lv; if (lg !== 'he') s.learn = lg; saveSoon(s);
+      makeStory(s, { genre, level: lv, lang: lg, idea: document.getElementById('sidea').value.trim() });
+    }
+  };
+}
+async function makeStory(s, o){
+  leave(); curView = 'story-gen'; tint(s.color);
+  app.innerHTML = `${topbar('סיפור חדש')}<div class="panel working">
+    <svg class="pen" viewBox="0 0 64 64" aria-hidden="true"><path d="M6 22c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/><path d="M6 36c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/><path d="M6 50c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/></svg>
+    <h2>כותב לך סיפור</h2><p class="muted">${esc((GENRES.find(g => g[0] === o.genre) || GENRES[0])[1])} · ${esc(o.level)}</p></div>${gameZone()}`;
+  cleanup = startGames();
+  const ctl = new AbortController();
+  app.onclick = e => { if (e.target.closest('[data-a="quit"]')) { ctl.abort(); modeStoryNew(s); } };
+  try {
+    const words = s.cards.map(c => c.t).filter(t => !isRtl(t)).slice(0, 30).join(', ');
+    const data = await callApi({ mode: 'story', lang: o.lang, level: o.level, genre: o.genre, idea: o.idea, words, avoid: s.reading.map(r => r.title) }, ctl.signal);
+    const r = normalize(data && data.result).reading[0];
+    if (!r) throw { code: 'bad_json' };
+    r.lang = r.lang || o.lang; r.genre = o.genre;
+    s.reading.push(r); if (s.reading.length > 40) s.reading.shift();
+    saveSet(s); if (curView === 'story-gen') modeRead(s, r);
+  } catch(e) {
+    if (e && e.name === 'AbortError') return;
+    if (e && e.code === 'need_code') return viewNeedCode(() => makeStory(s, o));
+    modeStoryNew(s); toast(errText(e));
+  }
 }
 // "Question? (תרגום)" → question on one line, Hebrew translation under it
 function bi(t){
@@ -1201,9 +1267,12 @@ function modeRead(s, r){
     <div class="stack">${r.q.map((m, i) => `<div class="panel stack" data-qi="${i}"><p class="q bi">${bi(m.q)}</p>
       <div class="opts">${m.o.map((o, j) => `<button class="opt" data-c="${j % 6}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span><span dir="auto">${esc(o)}</span></button>`).join('')}</div>
       <div class="after"></div></div>`).join('')}</div>
-    <div id="rres"></div>`;
+    <div id="rres"></div>
+    <div class="row"><button class="btn colored grow" data-c="5" data-a="newstory">📖 סיפור חדש</button>${s.reading.length > 1 ? `<button class="btn grow" data-a="allst">כל הסיפורים (${s.reading.length})</button>` : ''}</div>`;
   app.onclick = e => {
     if (e.target.closest('[data-a="quit"]')) return viewSet(s);
+    if (e.target.closest('[data-a="newstory"]')) return modeStoryNew(s);
+    if (e.target.closest('[data-a="allst"]')) return modeReadPick(s);
     if (e.target.closest('[data-r2]')) return modeRead(s, r);
     if (e.target.closest('[data-back]')) return viewSet(s);
     const o = e.target.closest('[data-o]'); if (!o) return;
