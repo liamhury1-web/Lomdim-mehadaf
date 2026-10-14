@@ -1,0 +1,25 @@
+name: apply-update
+on:
+  push:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply the uploaded update zip
+        run: |
+          f=$(ls update*.zip 2>/dev/null | head -1)
+          if [ -z "$f" ]; then echo "no update"; exit 0; fi
+          unzip -o -q "$f" -d /tmp/u
+          src=$(dirname "$(find /tmp/u -name app.js | head -1)")
+          cp -r "$src"/. .
+          git rm -q update*.zip
+          git rm -q --ignore-unmatch api/diag.js
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Apply update"
+          git push
