@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>לומדים מהדף</title>
+<meta name="description" content="מצלמים דף לימוד ומקבלים כרטיסיות, שאלות אמריקאיות, התאמת זוגות, סידור אותיות, שיעור קצר וסרטונים.">
+<meta name="theme-color" content="#2f55e4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#10131b" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="לומדים מהדף">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700;800&family=Suez+One&display=swap">
+<link rel="stylesheet" href="/style.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<div id="app" class="wrap"><p class="muted">טוען…</p></div>
+<div id="toast" class="toast" hidden></div>
+<!-- file pickers live outside the views so the buttons can open them reliably on every phone -->
+<input id="pickCam" class="vh" type="file" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true">
+<input id="pickGal" class="vh" type="file" accept="image/*" multiple tabindex="-1" aria-hidden="true">
+</body>
+</html>
