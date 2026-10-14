@@ -55,7 +55,8 @@ const LKEY = 'lomdim_sets_v1', CODEKEY = 'lomdim_access_code';
 function lget(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
 function lset(k, v){ try { localStorage.setItem(k, v); return true; } catch(e){ return false; } }
 let sets = [];
-sets = (() => { try { return (JSON.parse(lget(LKEY) || '[]') || []).map(fixSet); } catch(e){ return []; } })();
+// if loading ever fails, keep a copy of what was saved so nothing is lost when the app saves again
+sets = (() => { try { return (JSON.parse(lget(LKEY) || '[]') || []).map(fixSet); } catch(e){ const raw = lget(LKEY); if (raw) lset(LKEY + '_rescue', raw); return []; } })();
 sets.sort((a, b) => (b.updated || 0) - (a.updated || 0));
 function persist(){ if (!lset(LKEY, JSON.stringify(sets))) toast('אין מספיק מקום לשמור במכשיר'); }
 function saveSet(s){ s.updated = Date.now(); if (!sets.includes(s)) sets.unshift(s); persist(); }
@@ -65,6 +66,8 @@ function getSet(id){ return sets.find(s => s.id === id); }
 function fixSet(s){
   s = s || {};
   const arr = v => Array.isArray(v) ? v : [];
+  if (Array.isArray(s.mcq)) cleanQs(s.mcq);
+  if (Array.isArray(s.reading)) s.reading.forEach(r => r && Array.isArray(r.q) && cleanQs(r.q));
   return { id: s.id || ('s' + rid()), title: s.title || 'סט ללא שם', created: s.created || Date.now(), updated: s.updated || Date.now(),
     color: Number.isInteger(s.color) ? Math.abs(s.color) % 6 : sets.length % 6,
     termLang: s.termLang || '', defLang: s.defLang || '', alphabet: !!s.alphabet, example: !!s.example,
@@ -73,6 +76,16 @@ function fixSet(s){
     srs: s.srs && typeof s.srs === 'object' ? s.srs : {}, folder: typeof s.folder === 'string' ? s.folder.slice(0, 40) : '', level: typeof s.level === 'string' ? s.level.slice(0, 30) : '', learn: typeof s.learn === 'string' ? s.learn.slice(0, 5) : '', challenge: s.challenge && typeof s.challenge === 'object' ? s.challenge : null };
 }
 
+/* An option like "five (חמש)" gives the answer away: drop a bracketed part written in another script than the option itself. */
+// function declarations, not consts: fixSet() uses these while saved sets load at startup
+function scriptOf(t){ return /[\u0590-\u05FF]/.test(t) ? 'he' : /[\u0600-\u06FF]/.test(t) ? 'ar' : /\p{L}/u.test(t) ? 'x' : ''; }
+function cleanOpt(o){
+  const m = String(o).match(/^(.*?\S)\s*[(（]([^()（）]+)[)）]\s*$/);
+  if (!m) return o;
+  const a = scriptOf(m[1]), b = scriptOf(m[2]);
+  return a && b && a !== b ? m[1] : o;
+}
+function cleanQs(qs){ qs.forEach(m => { if (m && Array.isArray(m.o)) m.o = m.o.map(cleanOpt); }); }
 /* ---------------- shaping the AI answer ---------------- */
 function normalize(r){
   const o = r && typeof r === 'object' && !Array.isArray(r) ? r : {};
@@ -82,14 +95,14 @@ function normalize(r){
     title: str(o.title).slice(0, 60),
     termLang: str(o.termLang).slice(0, 12), defLang: str(o.defLang).slice(0, 12), alphabet: o.alphabet === true,
     cards: arr(o.cards).map(c => ({ t: str(c && c.term), d: str(c && c.def) })).filter(c => c.t && c.d),
-    mcq: arr(o.mcq).map(m => { const opts = arr(m && m.options).map(str).filter(Boolean); return { q: str(m && m.q), o: opts, a: Number(m && m.answer), x: str(m && m.explain) }; })
+    mcq: arr(o.mcq).map(m => { const opts = arr(m && m.options).map(str).map(cleanOpt).filter(Boolean); return { q: str(m && m.q), o: opts, a: Number(m && m.answer), x: str(m && m.explain) }; })
       .filter(m => m.q && m.o.length >= 2 && m.o.length <= 6 && Number.isInteger(m.a) && m.a >= 0 && m.a < m.o.length),
     scr: arr(o.scramble).map(s => ({ w: str(s && s.word), h: str(s && s.hint) })).filter(s => lettersOnly.test(s.w)),
     topics: arr(o.topics).map(t => ({ name: str(t && t.name).slice(0, 80), q: str(t && t.query).slice(0, 120) })).filter(t => t.name && t.q),
     lesson: arr(o.lesson).map(x => ({ h: str(x && x.title).slice(0, 100), b: str(x && x.body).slice(0, 3000) })).filter(x => x.h && x.b),
     reading: (Array.isArray(o.reading) ? o.reading : (o.reading ? [o.reading] : [])).map(r => ({
       title: str(r && r.title).slice(0, 100), lang: str(r && r.lang).slice(0, 12), text: str(r && r.text).slice(0, 6000), instr: str(r && r.instructions).slice(0, 300),
-      q: arr(r && r.questions).map(m => { const opts = arr(m && m.options).map(str).filter(Boolean); return { q: str(m && m.q), o: opts, a: Number(m && m.answer), x: str(m && m.explain) }; })
+      q: arr(r && r.questions).map(m => { const opts = arr(m && m.options).map(str).map(cleanOpt).filter(Boolean); return { q: str(m && m.q), o: opts, a: Number(m && m.answer), x: str(m && m.explain) }; })
         .filter(m => m.q && m.o.length >= 2 && m.o.length <= 6 && Number.isInteger(m.a) && m.a >= 0 && m.a < m.o.length)
     })).filter(r => r.text.length > 40)
   };

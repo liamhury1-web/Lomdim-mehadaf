@@ -6,7 +6,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
 const READING = `Reading passages, with comprehension questions (grade 1-2: 3-4 questions, otherwise 4-6).
 Make them like real reading material: model each passage on the texts found in Israeli school textbooks, graded readers and learner websites for that grade and language (for English: the Israeli Ministry of Education curriculum and the CEFR level below). Facts (science, animals, places, history, sport) must be true; check them with Google Search when it is available. Write an original passage in that style; never copy a published text.
 Questions must be good and easy: short, clear wording; most questions are answered directly by one sentence of the passage, asked in the order of the text; from grade 7 at most one inference or word-meaning question; exactly one correct option; wrong options are plausible but clearly wrong according to the text; no trick questions, no "all of the above".
-- For a foreign language (English, French, Arabic...): "instructions", every question "q" and every option are in the target language, and after the instructions and after each question add the Hebrew translation in parentheses, e.g. "Who found the dog? (מי מצא את הכלב?)". "explain" in Hebrew.
+- For a foreign language (English, French, Arabic...): "instructions", every question "q" and every option are in the target language; options have no translation. After the instructions and after each question add the Hebrew translation in parentheses, e.g. "Who found the dog? (מי מצא את הכלב?)". "explain" in Hebrew.
 - For Hebrew or other school subjects: all in Hebrew.
 Vowel marks, the way real learner texts have them:
 - Hebrew: never write nikud yourself, at any grade (a professional vocalizer adds it afterwards for young students). Use standard modern spelling.
@@ -27,6 +27,11 @@ Grades (Israeli school; the level may be in Hebrew, e.g. "כיתה ה׳" = grade
 `;
 
 const FORMAT = `Keep terms in their language; translate to Hebrew if no translation is given. Explanations: short and in Hebrew. Math: Unicode (x², √, ½, ×, ÷, π), no LaTeX.
+Multiple-choice questions (mcq and reading), in every subject:
+- Exactly one option is correct; check each question against the material and the facts before writing it.
+- Nothing may give the answer away: options never contain translations, hints or anything in parentheses (write "five", never "five (חמש)"); the question never contains the answer or a translation of it; in the Hebrew translation of a question keep the tested word as it is, untranslated.
+- All options are the same kind of thing, in the same language and of similar length; wrong options are plausible (typical mistakes, words from the same topic), never silly; no "all/none of the above".
+- Vary the position of the correct answer.
 Math, physics and chemistry: every question must have exactly one correct option. Solve each one step by step before writing it, double-check the arithmetic, and put the short solution steps in "explain". Wrong options should come from typical mistakes.
 Reply ONLY JSON:
 {"title":"Hebrew topic, max 40 chars","termLang":"en","defLang":"he","alphabet":false,
@@ -42,7 +47,7 @@ ${READING}alphabet true only if the material teaches letters.`;
 
 const PAGES = `Study pages from a Hebrew-speaking student in Israel. Turn them into quiz material. Use only what is on the pages; for exercises you may write similar new ones, solved correctly. `;
 
-const TEXT = `A Hebrew-speaking student in Israel wrote what they want to study. It is either a topic request (for example "questions about healthy nutrition for 8th grade") or study material they pasted. For a topic: write accurate, well-established, age-appropriate material on it, checked against reliable sources (use Google Search when it is available), at the level they asked for (default: middle school). For pasted material: use only that material. Write questions and answers in Hebrew unless the request is about learning another language.
+const TEXT = `A Hebrew-speaking student in Israel wrote what they want to study. It is either a topic request (for example "questions about healthy nutrition for 8th grade") or study material they pasted. For a topic: write accurate, well-established, age-appropriate material on it, checked against reliable sources (use Google Search when it is available), at the level they asked for (default: middle school). Follow exactly what they wrote: the subject, grade, language, number of questions and the specific words or exercises they listed; do not drift to other topics. For pasted material: use only that material. Write questions and answers in Hebrew unless the request is about learning another language.
 The student wrote:
 """
 `;
