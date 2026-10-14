@@ -213,7 +213,7 @@ function viewHome(){
     <header class="hero">
       <div class="rainbow" aria-hidden="true">${[0,1,2,3,4,5].map(c => `<i data-c="${c}"></i>`).join('')}</div>
       <h1><span>לומדים</span> מהדף</h1>
-      <p class="muted">מצלמים דף עבודה, רשימת מילים או תרגילים, ומקבלים ממנו כרטיסיות, שאלות אמריקאיות, התאמת זוגות, סידור אותיות, שיעור קצר וסרטונים.</p>
+      <p class="muted">מצלמים דף עבודה או כותבים נושא שרוצים ללמוד, ומקבלים כרטיסיות, שאלות אמריקאיות, התאמת זוגות, סידור אותיות, שיעור קצר וסרטונים.</p>
     </header>
     ${installHtml()}
     <button class="btn primary wide" data-a="new">${I.cam} סט חדש מצילום</button>
@@ -268,6 +268,12 @@ function viewCreate(errMsg){
       <div id="msg">${errMsg ? `<p class="note bad">${esc(errMsg)}</p>` : ''}</div>
       <button class="btn primary wide" id="go" type="button" data-a="go">צור תרגול</button>
     </section>
+    <div class="divider">או כתוב נושא</div>
+    <section class="panel stack">
+      <label class="stack" for="topic" style="gap:6px"><span class="small muted">נושא שתרצה ללמוד, או סיכום שתדביק כאן</span>
+        <textarea id="topic" rows="3" placeholder="למשל: שאלות על תזונה נכונה לכיתה ח׳&#10;או: מילים באנגלית על מזג אוויר"></textarea></label>
+      <button class="btn primary wide" type="button" data-a="text">צור תרגול מהטקסט</button>
+    </section>
     <div class="divider">או הקלדה ידנית</div>
     <section class="panel stack">
       <label class="stack" for="manual" style="gap:6px"><span class="small muted">שורה לכל פריט: מילה - פירוש</span>
@@ -298,6 +304,11 @@ function viewCreate(errMsg){
       case 'cam': return openPicker('cam');
       case 'gal': return openPicker('gal');
       case 'go': return generate(target, document.getElementById('note').value.trim());
+      case 'text': {
+        const t = document.getElementById('topic').value.trim();
+        if (t.length < 3) return toast('כתוב נושא או הדבק טקסט');
+        return generateText(target, t);
+      }
       case 'manual': {
         const lines = document.getElementById('manual').value.split('\n').map(l => l.trim()).filter(Boolean);
         const cards = lines.map(l => { const m = l.split(/\s+[-–—:=]\s+|\t|\s*[–—=]\s*/); return m.length >= 2 ? { t: m[0].trim(), d: m.slice(1).join(' - ').trim() } : null; }).filter(c => c && c.t && c.d);
@@ -321,6 +332,34 @@ function viewNeedCode(retry){
     </form>`;
   app.onclick = e => { if (e.target.closest('[data-a="back"]')) viewCreate(); };
   app.onsubmit = e => { e.preventDefault(); const v = document.getElementById('code').value.trim(); if (!v) return; lset(CODEKEY, v); retry(); };
+}
+
+async function generateText(target, text){
+  leave(); curView = 'working';
+  app.innerHTML = `
+    <div class="panel working">
+      <svg class="pen" viewBox="0 0 64 64" aria-hidden="true"><path d="M6 22c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/><path d="M6 36c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/><path d="M6 50c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/></svg>
+      <h2>בונה תרגול</h2>
+      <p class="muted" dir="auto">${esc(text.length > 80 ? text.slice(0, 78) + '…' : text)}</p>
+      <p class="small muted">זה לוקח בדרך כלל חצי דקה עד דקה.</p>
+      <button class="btn" type="button" data-a="stop">עצור</button>
+    </div>`;
+  const ctl = new AbortController();
+  app.onclick = e => { if (e.target.closest('[data-a="stop"]')) ctl.abort(); };
+  try {
+    const data = await callApi({ mode: 'text', text }, ctl.signal);
+    const part = normalize(data && data.result);
+    if (!(part.cards.length || part.mcq.length)) throw { code: 'empty' };
+    const s = target || fixSet({ title: '' });
+    mergeInto(s, part);
+    if (!s.title || s.title === 'סט ללא שם') s.title = text.slice(0, 40);
+    saveSet(s); viewSet(s);
+  } catch(e) {
+    if (e && e.name === 'AbortError') return viewCreate();
+    if (e && e.code === 'need_code') return viewNeedCode(() => generateText(target, text));
+    viewCreate(e && e.code === 'empty' ? 'לא הצלחתי לבנות תרגול מהטקסט. נסה לנסח את הנושא אחרת.' : errText(e));
+    const ta = document.getElementById('topic'); if (ta) ta.value = text;
+  }
 }
 
 async function generate(target, note){
