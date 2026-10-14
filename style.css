@@ -244,3 +244,26 @@ input.titlein:focus{outline:none;border-bottom-color:var(--k)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}.bubble{bottom:auto;top:var(--y,50%)}}
 .chips.wrap{flex-direction:row;flex-wrap:wrap;overflow:visible;justify-content:flex-start;align-items:center}
 .pickrow.two{grid-template-columns:1fr 1fr}
+/* one on one */
+.emo{font-size:22px;line-height:1}
+.vsin{min-height:48px;font-size:22px;letter-spacing:6px;text-align:center;font-variant-numeric:tabular-nums}
+.vslobby{align-items:center;text-align:center}
+.vscode{font-family:var(--f-display);font-size:64px;letter-spacing:10px;line-height:1;color:var(--k,var(--ink));font-variant-numeric:tabular-nums}
+.vsopp{display:flex;flex-direction:column;gap:4px;align-items:center;min-height:44px;justify-content:center}
+.vsbar{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin-bottom:12px}
+.vsp{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:0;background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:8px 6px}
+.vsp.me{border-color:var(--k,var(--ink))}
+.vsp span{font-weight:700;font-size:14px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vsp b{font-family:var(--f-display);font-size:26px;font-variant-numeric:tabular-nums}
+.vsx{font-weight:800;color:var(--muted,#888)}
+.dots{display:flex;gap:3px;flex-wrap:wrap;justify-content:center}
+.dots i{width:7px;height:7px;border-radius:50%;background:var(--line)}
+.dots i.on{background:var(--k,var(--ink))}
+.tbar{height:8px;border-radius:99px;background:var(--line);overflow:hidden;margin-bottom:10px}
+.tbar i{display:block;height:100%;width:100%;background:var(--k,var(--ink));transform-origin:right;animation:tshrink var(--d,20s) linear forwards}
+@keyframes tshrink{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+.vsgo{display:flex;flex-direction:column;align-items:center;gap:8px;padding-block:28px}
+.vsfinal{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%}
+.vsfinal div{display:flex;flex-direction:column;align-items:center;gap:2px;background:var(--paper);border-radius:12px;padding:10px}
+.vsfinal b{font-family:var(--f-display);font-size:32px}
+@media (prefers-reduced-motion:reduce){.tbar i{animation:tshrink var(--d,20s) linear forwards!important}}

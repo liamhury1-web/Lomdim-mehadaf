@@ -519,6 +519,7 @@ function viewHome(){
     ${statsBar()}
     ${due ? `<button class="btn colored wide" data-c="3" data-a="daily">🔁 חזרה יומית · ${due} פריטים מחכים</button>` : ''}
     <button class="btn primary wide" data-a="new">${I.cam} סט חדש מצילום</button>
+    <button class="btn colored wide" data-c="4" data-a="vs">⚔️ אחד על אחד מול חבר</button>
     ${sets.length ? `
       <div class="row between"><h2>הסטים שלי</h2><span class="muted small count">${shown.length}</span></div>
       ${folders.length ? `<div class="chips">${['', ...folders].map(f => `<button type="button" class="chip" data-folder="${esc(f)}" aria-pressed="${homeFolder === f}">${esc(f || 'הכול')}</button>`).join('')}</div>` : ''}
@@ -554,6 +555,7 @@ function viewHome(){
     if (a.dataset.a === 'install' && installEvt) { installEvt.prompt(); try { await installEvt.userChoice; } catch(e){} installEvt = null; return viewHome(); }
     if (a.dataset.a === 'hideinstall') { lset('lomdim_install_hide', '1'); return viewHome(); }
     if (a.dataset.a === 'daily') return dailyReview();
+    if (a.dataset.a === 'vs') return vsHome();
     if (a.dataset.a === 'backup') return backupNow();
     if (a.dataset.a === 'restore') { onPickedJson = f => restoreFrom(f); return document.getElementById('pickJson').click(); }
   };
@@ -835,6 +837,7 @@ function viewSet(s){
       { id:'write', c:5, ic:I.pen, name:'כתיבה', sub:'רואים פירוש, כותבים את המילה', ok: s.cards.length > 0 },
       { id:'lesson', c:3, ic:I.book, name:'שיעור קצר', sub: s.lesson.length ? 'הסבר על החומר' : 'ייווצר בלחיצה', ok: s.lesson.length > 0 || s.cards.length + s.mcq.length > 0 },
       { id:'read', c:5, ic:I.book, name:'קטע קריאה', sub: s.reading.length ? (s.reading.length === 1 ? 'סיפור אחד · אפשר להוסיף עוד' : s.reading.length + ' סיפורים · אפשר להוסיף עוד') : 'צור סיפור עם שאלות', ok: true },
+      { id:'vs', c:4, ic:'<span class="emo">⚔️</span>', name:'אחד על אחד', sub: mp.length >= 4 ? 'משחק מול חבר בזמן אמת' : 'צריך לפחות 4 שאלות', ok: mp.length >= 4 },
       { id:'videos', c:1, ic:I.play, name:'סרטונים', sub: s.topics.length ? s.topics.length + ' נושאים ביוטיוב' : 'חיפוש ביוטיוב', ok: true }
     ];
     const listHtml = () => {
@@ -940,7 +943,7 @@ function startMode(s, mode){
   ({ flash: modeFlash, mcq: modeMcq,
      match: () => modeMatch(s, s.cards.map(c => [c.t, c.d]), 'התאמת זוגות', 'match'),
      case: () => { const ci = caseInfo(s); return modeMatch(s, ci.pairs, ci.name, 'case'); },
-     scr: modeScr, write: modeWrite, lesson: modeLesson, videos: modeVideos, read: modeReadPick, review: modeReview, test: modeTest, dict: modeDict })[mode](s);
+     scr: modeScr, write: modeWrite, lesson: modeLesson, videos: modeVideos, read: modeReadPick, vs: s => vsHome({ set: s }), review: modeReview, test: modeTest, dict: modeDict })[mode](s);
 }
 
 function modeFlash(s, onlyUnknown, reverse){
@@ -1324,12 +1327,232 @@ function exampleSet(){
   return s;
 }
 
+/* ---------------- one on one between two phones ---------------- */
+// Both phones get the same questions; each one answers at its own pace with a timer,
+// and every second they read each other's score from /api/room.
+const VS_SEC = 20, VS_N = 10;
+async function roomApi(payload){
+  let r;
+  try { r = await fetch('/api/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) }); }
+  catch(e) { const err = new Error('net'); err.code = navigator.onLine === false ? 'offline' : 'no_server'; throw err; }
+  let d = null; try { d = await r.json(); } catch(e){}
+  if (!r.ok) { const err = new Error('room'); err.code = (d && d.code) || (r.status === 404 ? 'no_server' : 'server'); throw err; }
+  return d;
+}
+const VS_ERR = {
+  no_db: 'המשחק מול חבר עוד לא הופעל בשרת (חסר מסד נתונים ב-Vercel).',
+  not_found: 'לא מצאתי משחק עם הקוד הזה. בדוק את הקוד, או בקש מהחבר ליצור משחק חדש.',
+  full: 'במשחק הזה כבר יש שני שחקנים.',
+  few_questions: 'צריך לפחות 4 שאלות בסט כדי לשחק.'
+};
+const vsErr = e => VS_ERR[e && e.code] || errText(e);
+function vsQuestions(s){
+  return shuffle(mcqPool(s)).slice(0, VS_N).map(m => {
+    const o = shuffle(m.o.map((t, i) => ({ t, ok: i === m.a })));
+    return { q: m.q, o: o.map(x => x.t), a: o.findIndex(x => x.ok), x: m.x || '' };
+  });
+}
+function vsPoll(g, onData, ms){
+  let stop = false, t, fails = 0;
+  const tick = async () => {
+    if (stop) return;
+    try { const d = await roomApi({ action: 'poll', code: g.code }); fails = 0; g.offset = d.now - Date.now(); if (!stop) onData(d); }
+    catch(e) {
+      if (stop) return;
+      if (e.code === 'not_found') { stop = true; toast('המשחק כבר נסגר'); return viewHome(); }
+      if (++fails === 4) toast('החיבור חלש, ממשיך לנסות…');
+    }
+    if (!stop) t = setTimeout(tick, ms);
+  };
+  tick();
+  return () => { stop = true; clearTimeout(t); };
+}
+const vsOther = (g, d) => (d && d[g.role === 'h' ? 'g' : 'h']) || null;
+
+function vsHome(opt){
+  opt = opt || {};
+  leave(); curView = 'vs'; tint(opt.set ? opt.set.color : 4);
+  const playable = sets.filter(s => mcqPool(s).length >= 4);
+  app.innerHTML = `${topbar('⚔️ אחד על אחד')}
+    <p class="muted">משחק מול חבר, כל אחד בטלפון שלו. שניכם מקבלים את אותן ${VS_N} שאלות, ומי שעונה נכון ומהר יותר מנצח.</p>
+    <label class="stack panel" for="vsname" style="gap:6px"><span class="small muted">השם שלך במשחק</span>
+      <input type="text" id="vsname" maxlength="20" value="${esc(lget('lomdim_name') || '')}" placeholder="למשל: נועה" dir="auto"></label>
+    <section class="panel stack">
+      <h3>הצטרפות למשחק של חבר</h3>
+      <div class="row"><input type="text" id="vscode" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="קוד בן 4 ספרות" value="${esc(opt.code || '')}" class="grow vsin" aria-label="קוד המשחק">
+      <button class="btn primary" type="button" data-a="join">הצטרף</button></div>
+    </section>
+    <section class="panel stack">
+      <h3>יצירת משחק חדש</h3>
+      ${opt.set ? `<button class="btn colored wide" data-c="${opt.set.color}" data-vs="${esc(opt.set.id)}">צור משחק על: ${esc(opt.set.title)}</button>
+        <p class="small muted">או בחר סט אחר:</p>` : '<p class="small muted">בחר על איזה סט לשחק:</p>'}
+      ${playable.length ? `<div class="stack">${playable.filter(s => s !== opt.set).map(s => `<button class="vid" data-c="${s.color}" data-vs="${esc(s.id)}"><span class="play">⚔️</span><span class="grow"><strong dir="auto">${esc(s.title)}</strong><span class="small muted">${esc(setStats(s))}</span></span></button>`).join('')}</div>`
+        : '<p class="small muted">עוד אין לך סט עם מספיק שאלות. צור סט חדש, ואז חזור לכאן.</p>'}
+    </section>`;
+  const nameOk = () => {
+    const n = document.getElementById('vsname').value.trim();
+    if (!n) { toast('כתוב קודם את השם שלך'); document.getElementById('vsname').focus(); return null; }
+    lset('lomdim_name', n.slice(0, 20)); return n.slice(0, 20);
+  };
+  app.onclick = async e => {
+    if (e.target.closest('[data-a="quit"]')) return opt.set ? viewSet(opt.set) : viewHome();
+    const c = e.target.closest('[data-vs]');
+    if (c) { const name = nameOk(); if (!name) return; return vsCreate(getSet(c.dataset.vs), name); }
+    if (e.target.closest('[data-a="join"]')) {
+      const name = nameOk(); if (!name) return;
+      const code = document.getElementById('vscode').value.replace(/\D/g, '');
+      if (code.length !== 4) return toast('הקוד הוא 4 ספרות');
+      return vsJoin(code, name);
+    }
+  };
+}
+function vsBusy(text){ app.innerHTML = `${topbar('⚔️ אחד על אחד')}<div class="panel working"><h2>${esc(text)}</h2></div>`; app.onclick = e => { if (e.target.closest('[data-a="quit"]')) viewHome(); }; }
+async function vsCreate(s, name){
+  leave(); curView = 'vs'; tint(s.color); vsBusy('פותח משחק…');
+  const questions = vsQuestions(s);
+  try {
+    const d = await roomApi({ action: 'create', questions, title: s.title, name, sec: VS_SEC });
+    if (curView === 'vs') vsLobby({ code: d.code, role: 'h', name, title: s.title, questions, set: s, sec: VS_SEC, offset: d.now - Date.now() });
+    return d.code;
+  } catch(e) { vsHome({ set: s }); toast(vsErr(e)); }
+}
+async function vsJoin(code, name){
+  leave(); curView = 'vs'; vsBusy('מצטרף למשחק…');
+  try {
+    const d = await roomApi({ action: 'join', code, name });
+    if (curView === 'vs') vsLobby({ code, role: 'g', name, title: d.state.title, questions: d.questions, sec: d.state.sec || VS_SEC, offset: d.now - Date.now() });
+  } catch(e) { vsHome({ code }); toast(vsErr(e)); }
+}
+function vsLobby(g){
+  leave(); curView = 'vs'; tint(g.set ? g.set.color : 4);
+  const host = g.role === 'h', link = location.origin + '/#vs=' + g.code;
+  app.innerHTML = `${topbar('⚔️ אחד על אחד')}
+    <div class="panel stack center vslobby">
+      <span class="eyebrow" dir="auto">${esc(g.title)} · ${g.questions.length} שאלות</span>
+      ${host ? `<p class="muted">הקוד של המשחק:</p><div class="vscode" dir="ltr">${g.code}</div>
+        <button class="btn primary wide" data-a="send">שלח לחבר</button>
+        <p class="small muted">החבר פותח את הקישור, או נכנס לאפליקציה ← ⚔️ אחד על אחד ← מקליד את הקוד.</p>` : ''}
+      <div id="opp" class="vsopp"></div>
+      ${host ? '<button class="btn colored wide" data-c="2" data-a="start" disabled>התחל משחק</button>' : ''}
+    </div>`;
+  const oppEl = document.getElementById('opp'), startBtn = app.querySelector('[data-a="start"]');
+  cleanup = vsPoll(g, d => {
+    const o = vsOther(g, d);
+    if (host) {
+      oppEl.innerHTML = o ? `<strong>✅ ${esc(o.name)} הצטרף!</strong>` : '<span class="muted">⏳ מחכה שהחבר יצטרף…</span>';
+      startBtn.disabled = !o;
+    } else oppEl.innerHTML = `<strong>✅ נכנסת למשחק של ${esc(o ? o.name : 'החבר')}</strong><span class="muted">⏳ מחכה שיתחיל…</span>`;
+    if (d.state.st === 'play' && d.state.start) vsPlay(g, d.state.start, o ? o.name : 'החבר');
+  }, 1200);
+  app.onclick = async e => {
+    if (e.target.closest('[data-a="quit"]')) return viewHome();
+    if (e.target.closest('[data-a="send"]')) {
+      const text = `בוא נשחק אחד על אחד ב"לומדים מהדף": ${g.title}. הקוד: ${g.code}`;
+      if (navigator.share) { try { await navigator.share({ title: 'אחד על אחד', text, url: link }); return; } catch(err) { if (err && err.name === 'AbortError') return; } }
+      try { await navigator.clipboard.writeText(text + '\n' + link); toast('הקישור הועתק, הדבק אותו לחבר'); } catch(err) { prompt('העתק ושלח לחבר:', link); }
+    }
+    if (e.target.closest('[data-a="start"]') && !startBtn.disabled) {
+      startBtn.disabled = true;
+      try { const d = await roomApi({ action: 'start', code: g.code }); vsPlay(g, d.state.start, (oppEl.textContent.match(/✅ (.+) הצטרף/) || [, 'החבר'])[1]); }
+      catch(err) { startBtn.disabled = false; toast(vsErr(err)); }
+    }
+  };
+}
+function vsPlay(g, start, oppName){
+  leave(); curView = 'vs-play'; tint(g.set ? g.set.color : 4);
+  const n = g.questions.length, sec = g.sec || VS_SEC;
+  const me = { name: g.name, idx: 0, score: 0, right: 0, done: false };
+  let opp = { name: oppName, idx: 0, score: 0, done: false, t: Date.now() }, tq = null, locked = false, qStart = 0, ended = false;
+  app.innerHTML = `${topbar('⚔️ אחד על אחד')}
+    <div class="vsbar">
+      <div class="vsp me"><span dir="auto">${esc(me.name)}</span><b id="mys">0</b><div class="dots" id="myd"></div></div>
+      <span class="vsx">VS</span>
+      <div class="vsp"><span dir="auto" id="opn">${esc(opp.name)}</span><b id="ops">0</b><div class="dots" id="opd"></div></div>
+    </div>
+    <div id="vsmain"></div>`;
+  const main = document.getElementById('vsmain');
+  const dots = (k, done) => Array.from({ length: n }, (_, i) => `<i class="${i < k ? 'on' : ''}"></i>`).join('');
+  const drawBar = () => {
+    document.getElementById('mys').textContent = me.score; document.getElementById('ops').textContent = opp.score;
+    document.getElementById('myd').innerHTML = dots(me.idx); document.getElementById('opd').innerHTML = dots(opp.idx);
+    document.getElementById('opn').textContent = opp.name + (opp.done ? ' ✓' : '');
+  };
+  drawBar();
+  const send = () => roomApi({ action: 'me', code: g.code, role: g.role, ...me }).catch(() => {});
+  const stopPoll = vsPoll(g, d => {
+    const o = vsOther(g, d); if (o) { opp = o; drawBar(); }
+    if (me.done && !ended && (opp.done || Date.now() + (g.offset || 0) - (opp.t || 0) > 45000)) finish(!opp.done);
+  }, 1000);
+  cleanup = () => { stopPoll(); clearTimeout(tq); clearInterval(cd); };
+  // countdown to the shared start time
+  let cd = setInterval(() => {
+    const left = Math.ceil((start - (g.offset || 0) - Date.now()) / 1000);
+    if (left > 0) { main.innerHTML = `<div class="panel center vsgo"><p class="muted">מתחילים בעוד</p><div class="score">${left}</div></div>`; return; }
+    clearInterval(cd); showQ();
+  }, 200);
+  function showQ(){
+    const q = g.questions[me.idx]; locked = false; qStart = Date.now();
+    main.innerHTML = `<div class="tbar"><i style="--d:${sec}s"></i></div>
+      <div class="panel stack"><span class="eyebrow">שאלה ${me.idx + 1} מתוך ${n}</span><p class="q" dir="auto">${esc(q.q)}</p></div>
+      <div class="opts">${q.o.map((o, j) => `<button class="opt" data-c="${j % 6}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span><span dir="auto">${esc(o)}</span></button>`).join('')}</div>
+      <div id="vsfb"></div>`;
+    tq = setTimeout(() => answer(-1), sec * 1000);
+  }
+  function answer(pick){
+    if (locked) return; locked = true; clearTimeout(tq);
+    const q = g.questions[me.idx], ok = pick === q.a, ms = Date.now() - qStart;
+    const gain = ok ? 100 + Math.round(100 * Math.max(0, sec * 1000 - ms) / (sec * 1000)) : 0;
+    me.score += gain; if (ok) me.right++; me.idx++; me.done = me.idx >= n;
+    award(ok); send(); drawBar();
+    main.querySelectorAll('.opt').forEach((b, j) => { if (j === q.a) b.classList.add('right'); else if (j === pick) b.classList.add('wrong'); b.disabled = true; });
+    const tb = main.querySelector('.tbar i'); if (tb) tb.style.animationPlayState = 'paused';
+    document.getElementById('vsfb').innerHTML = `<p class="explain" dir="auto">${ok ? '✅ +' + gain : pick < 0 ? '⏰ נגמר הזמן' : '❌ לא נכון'}${!ok && q.x ? ' · ' + esc(q.x) : ''}</p>`;
+    setTimeout(() => {
+      if (curView !== 'vs-play') return;
+      if (!me.done) return showQ();
+      main.innerHTML = `<div class="panel center vsgo"><h2>סיימת! 🎉</h2><p class="muted" dir="auto">מחכה ש-${esc(opp.name)} יסיים…</p></div>`;
+      if (opp.done) finish(false);
+    }, ok ? 900 : 1600);
+  }
+  app.onclick = e => {
+    if (e.target.closest('[data-a="quit"]')) { if (confirm('לצאת מהמשחק?')) viewHome(); return; }
+    const o = e.target.closest('[data-o]'); if (o && !locked) answer(+o.dataset.o);
+  };
+  function finish(left){ if (ended) return; ended = true; vsResult(g, me, opp, left); }
+}
+function vsResult(g, me, opp, left){
+  leave(); curView = 'vs-end';
+  const win = me.score > opp.score, tie = me.score === opp.score;
+  if (win) bump({ wins: 1 });
+  app.innerHTML = `${topbar('⚔️ אחד על אחד')}
+    <div class="panel result">
+      <div class="score">${win ? '🏆' : tie ? '🤝' : '💪'}</div>
+      <h2 dir="auto">${win ? 'ניצחת!' : tie ? 'תיקו!' : esc(opp.name) + ' ניצח הפעם'}</h2>
+      ${left ? `<p class="small muted" dir="auto">${esc(opp.name)} יצא מהמשחק באמצע.</p>` : ''}
+      <div class="vsfinal">
+        <div><span dir="auto">${esc(me.name)}</span><b>${me.score}</b><small>${me.right}/${g.questions.length} נכונות</small></div>
+        <div><span dir="auto">${esc(opp.name)}</span><b>${opp.score}</b><small>${opp.right || 0}/${g.questions.length} נכונות</small></div>
+      </div>
+      <div class="row center">${g.role === 'h' && g.set ? '<button class="btn primary" data-a="again">משחק חוזר</button>' : '<span class="small muted" id="wait">אם ' + esc(opp.name) + ' יפתח משחק חוזר, תיכנס אליו לבד.</span>'}
+        <button class="btn" data-a="home">יציאה</button></div>
+    </div>`;
+  if (g.role === 'g') cleanup = vsPoll(g, d => { if (d.state.next) vsJoin(d.state.next, g.name); }, 1500);
+  app.onclick = async e => {
+    if (e.target.closest('[data-a="quit"]') || e.target.closest('[data-a="home"]')) return viewHome();
+    if (e.target.closest('[data-a="again"]')) {
+      const old = g.code, next = await vsCreate(g.set, g.name);
+      if (next) roomApi({ action: 'next', code: old, next }).catch(() => {});
+    }
+  };
+}
+
 /* ---------------- boot ---------------- */
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
 }
 (async function boot(){
   const h = location.hash;
+  if (/^#vs=\d{4}$/.test(h)) { history.replaceState(null, '', location.pathname); return vsHome({ code: h.slice(4) }); }
   if (h.startsWith('#s=')) {
     try { return viewImport(await decodeSet(h.slice(3))); }
     catch(e) { history.replaceState(null, '', location.pathname); toast('הקישור לסט לא תקין'); }
@@ -1337,6 +1560,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
   viewHome();
 })();
 window.addEventListener('hashchange', async () => {
+  if (/^#vs=\d{4}$/.test(location.hash)) { const c = location.hash.slice(4); history.replaceState(null, '', location.pathname); return vsHome({ code: c }); }
   if (location.hash.startsWith('#s=')) { try { viewImport(await decodeSet(location.hash.slice(3))); } catch(e){ toast('הקישור לסט לא תקין'); } }
 });
 })();
