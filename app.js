@@ -205,6 +205,103 @@ let onPicked = null;
 });
 function openPicker(which){ const el = document.getElementById(which === 'cam' ? 'pickCam' : 'pickGal'); el.value = ''; el.click(); }
 
+
+/* ---------------- mini games while waiting ---------------- */
+const GAMES = [['bub', 'בועות'], ['math', 'חשבון מהיר'], ['simon', 'זיכרון צבעים']];
+function gameZone(){
+  let last = lget('lomdim_game') || 'bub';
+  if (!GAMES.some(g => g[0] === last)) last = 'bub';
+  return `<section class="gamezone" id="gz">
+    <div class="row between"><strong>משחק בזמן שמחכים</strong><span class="small muted count" id="gscore"></span></div>
+    <div class="gtabs" role="tablist">${GAMES.map(([id, n], i) => `<button type="button" role="tab" data-c="${[1, 3, 4][i]}" data-g="${id}" aria-selected="${id === last}">${n}</button>`).join('')}</div>
+    <div class="garea" id="garea"></div>
+  </section>`;
+}
+function startGames(){
+  const gz = document.getElementById('gz'); if (!gz) return () => {};
+  const area = document.getElementById('garea'), scoreEl = document.getElementById('gscore');
+  let stopCur = () => {};
+  const best = id => +(lget('lomdim_best_' + id) || 0);
+  function show(score, id){
+    if (score > best(id)) lset('lomdim_best_' + id, String(score));
+    scoreEl.textContent = 'ניקוד ' + score + ' · שיא ' + Math.max(best(id), score);
+  }
+  function run(id){
+    stopCur(); lset('lomdim_game', id);
+    gz.querySelectorAll('[data-g]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.g === id)));
+    area.innerHTML = ''; area.onclick = null;
+    stopCur = ({ bub: gameBubbles, math: gameMath, simon: gameSimon })[id](area, sc => show(sc, id));
+  }
+  gz.addEventListener('click', e => { const t = e.target.closest('[data-g]'); if (t) run(t.dataset.g); });
+  run(lget('lomdim_game') && GAMES.some(g => g[0] === lget('lomdim_game')) ? lget('lomdim_game') : 'bub');
+  return () => stopCur();
+}
+function gameBubbles(area, report){
+  let score = 0; report(0);
+  area.classList.add('bubbles');
+  const spawn = () => {
+    const b = document.createElement('button');
+    const size = 38 + Math.random() * 34;
+    b.type = 'button'; b.className = 'bubble'; b.dataset.c = String(Math.random() * 6 | 0);
+    b.style.width = b.style.height = size + 'px';
+    b.style.left = Math.random() * (area.clientWidth - size) + 'px';
+    b.style.animationDuration = (3.2 + Math.random() * 2.5) + 's';
+    b.style.setProperty('--y', (10 + Math.random() * 70) + '%');
+    b.setAttribute('aria-label', 'בועה');
+    b.onclick = () => { score++; report(score); b.classList.add('pop'); setTimeout(() => b.remove(), 180); };
+    area.appendChild(b);
+    setTimeout(() => b.remove(), 6500);
+  };
+  const iv = setInterval(spawn, 650); spawn();
+  return () => { clearInterval(iv); area.classList.remove('bubbles'); area.innerHTML = ''; };
+}
+function gameMath(area, report){
+  let score = 0, streak = 0, stopped = false, t = 0; report(0);
+  function next(){
+    if (stopped) return;
+    const lvl = Math.min(4, 1 + Math.floor(streak / 4));
+    const ops = lvl < 2 ? ['+', '−'] : ['+', '−', '×'];
+    const op = ops[Math.random() * ops.length | 0];
+    let a = 1 + (Math.random() * (5 * lvl + 5) | 0), b = 1 + (Math.random() * (5 * lvl + 5) | 0);
+    if (op === '×') { a = 2 + (Math.random() * (3 + 2 * lvl) | 0); b = 2 + (Math.random() * 8 | 0); }
+    if (op === '−' && b > a) [a, b] = [b, a];
+    const ans = op === '+' ? a + b : op === '−' ? a - b : a * b;
+    const opts = new Set([ans]);
+    while (opts.size < 3) { const d = ans + ((Math.random() * 7 | 0) - 3 || 1); if (d >= 0) opts.add(d); }
+    const list = shuffle([...opts]);
+    area.innerHTML = `<div class="mq" dir="ltr">${a} ${op} ${b} = ?</div><div class="mopts">${list.map(v => `<button type="button" data-v="${v}">${v}</button>`).join('')}</div><div class="small muted mstreak">${streak ? 'רצף ' + streak : 'כמה זה?'}</div>`;
+    area.onclick = e => {
+      const btn = e.target.closest('[data-v]'); if (!btn) return;
+      if (+btn.dataset.v === ans) { score++; streak++; report(score); btn.classList.add('right'); }
+      else { streak = 0; btn.classList.add('wrong'); area.querySelector(`[data-v="${ans}"]`).classList.add('right'); }
+      area.onclick = null; t = setTimeout(next, 450);
+    };
+  }
+  next();
+  return () => { stopped = true; clearTimeout(t); area.onclick = null; area.innerHTML = ''; };
+}
+function gameSimon(area, report){
+  let seq = [], pos = 0, busy = true, timers = [];
+  area.innerHTML = `<div class="simon">${[0, 1, 2, 3].map(i => `<button type="button" data-p="${i}" data-c="${[0, 1, 3, 2][i]}" aria-label="צבע ${i + 1}"></button>`).join('')}</div><div class="small muted mstreak" id="smsg">הסתכל וחזור על הסדר</div>`;
+  const pads = [...area.querySelectorAll('[data-p]')], msg = area.querySelector('#smsg');
+  const later = (f, ms) => timers.push(setTimeout(f, ms));
+  const flash = i => { pads[i].classList.add('lit'); later(() => pads[i].classList.remove('lit'), 320); };
+  function round(){
+    seq.push(Math.random() * 4 | 0); pos = 0; busy = true; msg.textContent = 'שלב ' + seq.length;
+    seq.forEach((p, k) => later(() => flash(p), 600 + k * 520));
+    later(() => { busy = false; msg.textContent = 'תורך'; }, 600 + seq.length * 520);
+  }
+  area.onclick = e => {
+    const b = e.target.closest('[data-p]'); if (!b || busy) return;
+    const i = +b.dataset.p; flash(i);
+    if (i !== seq[pos]) { busy = true; msg.textContent = 'אופס! מתחילים מחדש'; report(0); seq = []; later(round, 1100); return; }
+    pos++;
+    if (pos === seq.length) { report(seq.length); busy = true; later(round, 700); }
+  };
+  report(0); round();
+  return () => { timers.forEach(clearTimeout); area.onclick = null; area.innerHTML = ''; };
+}
+
 /* ---------------- views ---------------- */
 let curView = '';
 let pages = [], createTarget = null;
@@ -368,7 +465,8 @@ async function generateText(target, text, opts){
       <p class="muted" dir="auto">${esc(label.length > 80 ? label.slice(0, 78) + '…' : label)}</p>
       <p class="small muted">זה לוקח בדרך כלל חצי דקה עד דקה.</p>
       <button class="btn" type="button" data-a="stop">עצור</button>
-    </div>`;
+    </div>${gameZone()}`;
+  cleanup = startGames();
   const ctl = new AbortController();
   app.onclick = e => { if (e.target.closest('[data-a="stop"]')) ctl.abort(); };
   try {
@@ -397,7 +495,8 @@ async function generate(target, note){
       <p class="muted" id="st">מכין את התמונות…</p>
       <p class="small muted">זה לוקח בדרך כלל חצי דקה עד דקה לכל כמה דפים.</p>
       <button class="btn" type="button" data-a="stop">עצור</button>
-    </div>`;
+    </div>${gameZone()}`;
+  cleanup = startGames();
   const st = document.getElementById('st');
   const ctl = new AbortController();
   app.onclick = e => { if (e.target.closest('[data-a="stop"]')) ctl.abort(); };
@@ -774,7 +873,8 @@ async function makeLesson(s){
   leave(); curView = 'lesson-gen'; tint(s.color);
   app.innerHTML = `${topbar('שיעור קצר')}<div class="panel working">
     <svg class="pen" viewBox="0 0 64 64" aria-hidden="true"><path d="M6 22c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/><path d="M6 36c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/><path d="M6 50c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/></svg>
-    <h2>כותב שיעור על החומר</h2><p class="muted">בערך חצי דקה.</p></div>`;
+    <h2>כותב שיעור על החומר</h2><p class="muted">בערך חצי דקה.</p></div>${gameZone()}`;
+  cleanup = startGames();
   const ctl = new AbortController();
   app.onclick = e => { if (e.target.closest('[data-a="quit"]')) { ctl.abort(); viewSet(s); } };
   try {
