@@ -756,33 +756,33 @@ const ABC = {
 const AR_JOIN = 'بتثجحخسشصضطظعغفقكلمنهي', AR_END = 'اأإآدذرزوة';
 const HIRA = 'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん';
 const SCRIPTS = { lat: /\p{Script=Latin}/u, cyr: /\p{Script=Cyrillic}/u, grk: /\p{Script=Greek}/u, heb: /\p{Script=Hebrew}/u, ara: /\p{Script=Arabic}/u, kana: /[\p{Script=Hiragana}\p{Script=Katakana}]/u, han: /\p{Script=Han}/u, eth: /\p{Script=Ethiopic}/u };
-function setScript(s, words){
-  const tl = (s.termLang || '').slice(0, 2).toLowerCase();
-  const byLang = { en:'lat', fr:'lat', es:'lat', de:'lat', it:'lat', pt:'lat', ru:'cyr', el:'grk', he:'heb', ar:'ara', ja:'kana', zh:'han', am:'eth' };
-  const count = {}; words.join('').split('').forEach(ch => { for (const k in SCRIPTS) if (SCRIPTS[k].test(ch)) { count[k] = (count[k] || 0) + 1; break; } });
-  const top = Object.keys(count).sort((a, b) => count[b] - count[a])[0];
-  // the letters actually in the set win; the language tag only breaks a tie or fills in an empty set
-  return top && (!byLang[tl] || (count[top] || 0) > (count[byLang[tl]] || 0) * 2) ? top : (byLang[tl] || top || '');
-}
+const BYLANG = { en:'lat', fr:'lat', es:'lat', de:'lat', it:'lat', pt:'lat', ru:'cyr', el:'grk', ar:'ara', ja:'kana', zh:'han', am:'eth' };
+const LANG_SUBJ = ['אנגלית', 'ערבית', 'צרפתית', 'ספרדית'];
 const kata = ch => String.fromCharCode(ch.charCodeAt(0) + 0x60);
+// Only for sets that teach a foreign language, and always in that language, never in Hebrew (the app's language).
 function caseInfo(s){
-  const raw = [...new Set([...s.cards.map(c => c.t), ...s.scr.map(x => x.w)].map(w => String(w || '').trim()).filter(Boolean))];
-  const sc = setScript(s, raw), tl = (s.termLang || '').slice(0, 2).toLowerCase();
-  const none = { pairs: [], name: 'גדולות וקטנות', sub: 'אין בשפה של הסט אותיות גדולות' };
+  const hide = { pairs: [], hide: true };
+  if (s.folder && SUBJECTS.includes(s.folder) && !LANG_SUBJ.includes(s.folder)) return hide;
+  const code = [s.termLang, s.defLang, ...s.reading.map(r => r.lang)].map(x => String(x || '').slice(0, 2).toLowerCase()).find(x => BYLANG[x]) || '';
+  const fields = [...s.cards.flatMap(c => [c.t, c.d]), ...s.scr.map(x => x.w)].map(w => String(w || '').trim()).filter(Boolean);
+  const tokens = [...new Set(fields.join(' ').match(/\p{L}{2,}/gu) || [])].filter(w => !/\p{Script=Hebrew}/u.test(w));
+  const count = {}; tokens.forEach(w => { for (const k in SCRIPTS) if (SCRIPTS[k].test(w)) { count[k] = (count[k] || 0) + 1; break; } });
+  const top = Object.keys(count).sort((a, b) => count[b] - count[a])[0];
+  const sc = code && (count[BYLANG[code]] || !top) ? BYLANG[code] : top;
+  const inSc = w => [...w].every(ch => SCRIPTS[sc].test(ch));
+  if (!sc || (!(count[sc] >= 3) && !(code && s.alphabet))) return hide;
+  const raw = [...new Set(tokens.filter(inSc))];
+  const tl = code && BYLANG[code] === sc ? code : '';
   if (sc === 'lat' || sc === 'cyr' || sc === 'grk') {
     const re = SCRIPTS[sc], loc = tl || undefined;
     const up = w => { try { return w.toLocaleUpperCase(loc); } catch(e){ return w.toUpperCase(); } };
     const low = w => { try { return w.toLocaleLowerCase(loc); } catch(e){ return w.toLowerCase(); } };
-    const words = [...new Set(raw.filter(w => /^\p{L}{2,12}$/u.test(w) && [...w].every(ch => re.test(ch))).map(low))].filter(w => up(w) !== w);
+    const words = [...new Set(raw.filter(w => w.length <= 12).map(low))].filter(w => up(w) !== w).slice(0, 30);
     let letters = [...new Set([...words.join('')].map(up))].filter(L => L.length === 1 && low(L) !== L);
     const abc = ABC[tl] || (sc === 'cyr' ? ABC.ru : sc === 'grk' ? ABC.el : ABC.en);
     if (letters.length < 8 && (s.alphabet || words.length)) letters = [...new Set([...letters, ...shuffle([...abc]).slice(0, 10 - letters.length)])];
     const sample = [...letters.slice(0, 2), ...words.slice(0, 1)].map(x => up(x) + ' ↔ ' + low(x)).join(' · ');
-    return { pairs: [...letters.map(L => [L, low(L)]), ...words.map(w => [up(w), w])], name: 'גדולות וקטנות', sub: sample || none.sub };
-  }
-  if (sc === 'heb') {
-    if (!s.alphabet && !/עברית|לשון/.test((s.folder || '') + ' ' + s.title)) return { ...none, sub: 'אין בעברית אותיות גדולות' };
-    return { pairs: [['כ','ך'], ['מ','ם'], ['נ','ן'], ['פ','ף'], ['צ','ץ']], name: 'אותיות סופיות', sub: 'מ ↔ ם · נ ↔ ן · צ ↔ ץ' };
+    return { pairs: [...letters.map(L => [L, low(L)]), ...words.map(w => [up(w), w])], name: 'גדולות וקטנות', sub: sample };
   }
   if (sc === 'ara') {
     const used = [...new Set([...raw.join('')].filter(ch => AR_JOIN.includes(ch) || AR_END.includes(ch)))];
@@ -798,7 +798,7 @@ function caseInfo(s){
     if (letters.length < 8) letters = [...new Set([...letters, ...shuffle([...HIRA]).slice(0, 10 - letters.length)])];
     return { pairs: [...letters.map(ch => [ch, kata(ch)]), ...words.map(w => [w, toK(w)])], name: 'הירגנה ↔ קטקנה', sub: 'あ ↔ ア · ねこ ↔ ネコ' };
   }
-  return none;
+  return hide;
 }
 const casePool = s => caseInfo(s).pairs;
 function mcqPool(s){
@@ -829,7 +829,7 @@ function viewSet(s){
       { id:'mcq', c:1, ic:I.abc, name:'אמריקאיות', sub: mp.length + ' שאלות לבחירה', ok: mp.length > 0 },
       { id:'match', c:2, ic:I.match, name:'התאמת זוגות', sub:'מחברים מילה לפירוש', ok: s.cards.length >= 3 },
       { id:'scr', c:3, ic:I.scr, name:'סידור אותיות', sub: scr.length ? scr.length + ' מילים לאיות' : 'אין מילים בודדות בסט', ok: scr.length > 0 },
-      { id:'case', c:4, ic:I.Aa, name: ci.name, sub: ci.sub, ok: cp.length >= 3 },
+      { id:'case', c:4, ic:I.Aa, name: ci.name, sub: ci.sub, ok: cp.length >= 3, hide: !!ci.hide },
       { id:'write', c:5, ic:I.pen, name:'כתיבה', sub:'רואים פירוש, כותבים את המילה', ok: s.cards.length > 0 },
       { id:'lesson', c:3, ic:I.book, name:'שיעור קצר', sub: s.lesson.length ? 'הסבר על החומר' : 'ייווצר בלחיצה', ok: s.lesson.length > 0 || s.cards.length + s.mcq.length > 0 },
       { id:'read', c:5, ic:I.book, name:'קטע קריאה', sub: s.reading.length ? (s.reading.length === 1 ? 'טקסט ושאלות הבנה' : s.reading.length + ' טקסטים') : 'אין בסט הזה', ok: s.reading.length > 0 },
@@ -856,7 +856,7 @@ function viewSet(s){
         <label class="folderrow" for="folder"><span class="small muted">📁 תיקייה</span><input type="text" id="folder" list="folderlist" value="${esc(s.folder || '')}" placeholder="למשל: אנגלית" dir="auto"><datalist id="folderlist">${[...new Set([...SUBJECTS, ...sets.map(x => x.folder).filter(Boolean)])].map(f => `<option value="${esc(f)}">`).join('')}</datalist></label>
         <div class="swatches" role="group" aria-label="צבע הסט">${[0,1,2,3,4,5].map(c => `<button type="button" data-c="${c}" data-color="${c}" aria-pressed="${s.color === c}" aria-label="צבע ${c + 1}"></button>`).join('')}</div>
       </div>
-      <div class="modes">${modes.map(m => `<button class="mode" data-c="${m.c}" data-mode="${m.id}" ${m.ok ? '' : 'disabled'}>${m.ic}<strong>${m.name}</strong><span>${esc(m.sub)}</span></button>`).join('')}</div>
+      <div class="modes">${modes.filter(m => !m.hide).map(m => `<button class="mode" data-c="${m.c}" data-mode="${m.id}" ${m.ok ? '' : 'disabled'}>${m.ic}<strong>${m.name}</strong><span>${esc(m.sub)}</span></button>`).join('')}</div>
       <div class="row between"><h3>מה יש בסט</h3>
         <div class="row">${editing ? `<button class="btn ghost" data-a="cancel">ביטול</button><button class="btn primary" data-a="saveedit">שמור</button>` : `<button class="btn ghost" data-a="edit">עריכה</button>`}</div></div>
       <div class="stack">${listHtml()}</div>
