@@ -377,3 +377,77 @@ body:has(.wsheet:not([hidden])) .toast{bottom:calc(210px + env(safe-area-inset-b
 .topbar .btn.primary{min-height:40px;padding-inline:18px}
 .mode{min-height:96px;justify-content:center}
 @media (prefers-reduced-motion:reduce){.working .mascot,.result .mascot{animation:none!important}.stars span{transform:none!important;animation:none!important}}
+/* ===== more color ===== */
+/* soft colored light behind the notebook grid */
+body{background-image:
+  radial-gradient(60vmax 40vmax at 0% 0%,color-mix(in srgb,var(--c2) 14%,transparent),transparent 70%),
+  radial-gradient(50vmax 40vmax at 100% 35%,color-mix(in srgb,var(--c5) 12%,transparent),transparent 70%),
+  radial-gradient(60vmax 45vmax at 10% 100%,color-mix(in srgb,var(--c4) 12%,transparent),transparent 70%),
+  linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:auto,auto,auto,24px 24px,24px 24px;background-attachment:fixed,fixed,fixed,scroll,scroll}
+.topbar{background:color-mix(in srgb,var(--paper) 88%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+/* practice tiles: full marker colors */
+.mode{background:linear-gradient(150deg,color-mix(in srgb,var(--k) 82%,#fff),var(--k));border-color:transparent;color:var(--card);
+  box-shadow:0 6px 16px color-mix(in srgb,var(--k) 30%,transparent)}
+.mode strong{color:var(--card)}
+.mode span{color:color-mix(in srgb,var(--card) 85%,transparent)}
+.mode svg,.mode .emo{background:color-mix(in srgb,var(--card) 24%,transparent);color:var(--card)}
+.modes.small .mode{box-shadow:0 3px 8px color-mix(in srgb,var(--k) 22%,transparent)}
+/* choices on the first screen */
+.choice{background:linear-gradient(150deg,color-mix(in srgb,var(--k) 16%,var(--card)),color-mix(in srgb,var(--k) 6%,var(--card)));border-color:color-mix(in srgb,var(--k) 45%,var(--line))}
+/* set cards: colored play side */
+.setcard{background:repeating-linear-gradient(to bottom,transparent 0 27px,color-mix(in srgb,var(--k) 12%,transparent) 27px 28px),color-mix(in srgb,var(--k) 10%,var(--card))}
+.setplay{background:var(--k);color:var(--card);border-inline-start:0}
+.setplay .pl{background:color-mix(in srgb,var(--card) 25%,transparent);color:var(--card)}
+/* progress bars run through all the marker colors */
+.bar{height:8px;border-radius:4px}
+.bar i,.meter i{background:linear-gradient(90deg,var(--c1),var(--c5),var(--c2),var(--c3),var(--c4))}
+.meter i{background-size:200px 100%}
+/* answer options: each with its own soft color */
+.opt{background:color-mix(in srgb,var(--k) 7%,var(--card));border-color:color-mix(in srgb,var(--k) 28%,var(--line))}
+/* panels: a thin colored edge on top */
+.panel{border-top:4px solid color-mix(in srgb,var(--k,var(--c1)) 70%,var(--line))}
+/* big main button with a little shine */
+.btn.colored.big{background:linear-gradient(150deg,color-mix(in srgb,var(--k) 75%,#fff),var(--k));box-shadow:0 8px 18px color-mix(in srgb,var(--k) 35%,transparent);border-color:transparent}
+.newrow .btn{box-shadow:0 8px 18px color-mix(in srgb,var(--c1) 28%,transparent)}
+.newrow .btn.alt{box-shadow:0 8px 18px color-mix(in srgb,var(--c5) 28%,transparent)}
+/* headings take the set's color */
+.settitle,.result h2{color:var(--k,var(--ink))}
+details.more summary{color:var(--fg)}
+.statsbar .pill:nth-child(1){background:color-mix(in srgb,var(--c3) 16%,var(--card));border-color:color-mix(in srgb,var(--c3) 40%,var(--line))}
+.statsbar .pill:nth-child(2){background:color-mix(in srgb,#ffc93c 22%,var(--card));border-color:color-mix(in srgb,#e0a300 40%,var(--line))}
+.statsbar .pill:nth-child(3){background:color-mix(in srgb,var(--c5) 14%,var(--card));border-color:color-mix(in srgb,var(--c5) 40%,var(--line))}
+.seg button[aria-selected="true"]{background:linear-gradient(150deg,color-mix(in srgb,var(--k,var(--ink)) 78%,#fff),var(--k,var(--ink)))}
+.tile{background:color-mix(in srgb,var(--k) 11%,var(--card));border-color:color-mix(in srgb,var(--k) 35%,var(--line))}
+.face{background:linear-gradient(170deg,color-mix(in srgb,var(--k) 9%,var(--card)),var(--card))}
+.qflash,.panel.stack:has(> .q){background:linear-gradient(170deg,color-mix(in srgb,var(--k) 8%,var(--card)),var(--card))}
+/* learning games */
+.modes.small .mode .emo{width:30px;height:30px;padding:0;display:grid;place-items:center;font-size:18px;border-radius:9px}
+.balloonbox{display:flex;align-items:flex-end;justify-content:center;gap:4px;min-height:170px}
+.balloon{width:110px;height:auto}
+.balloonbox .mascot{width:44px;margin-bottom:6px}
+.pop{font-size:80px;line-height:1;align-self:center;animation:hop .4s ease-out}
+.slots .gap{width:16px}
+.slots span.slot{cursor:default}
+.letter.used{opacity:.45}
+.letter.good{background:var(--ok-soft);border-color:var(--ok);color:var(--ok);opacity:1}
+.letter.bad{background:var(--bad-soft);border-color:var(--bad);color:var(--bad)}
+.letters .letter{width:44px;height:48px;font-size:22px}
+.sline{min-height:64px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;padding:12px;border-radius:14px;border:2px dashed color-mix(in srgb,var(--k) 45%,var(--line));background:color-mix(in srgb,var(--k) 6%,var(--card))}
+.sline.ok{border-color:var(--ok);border-style:solid;background:var(--ok-soft)}
+.sline.no{border-color:var(--bad)}
+.spool{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.chip.word{min-height:44px;font-size:17px;padding:0 14px;background:color-mix(in srgb,var(--k) 12%,var(--card));border-color:color-mix(in srgb,var(--k) 40%,var(--line))}
+.catchtop{display:flex;justify-content:space-between;align-items:center;font-size:20px}
+.catch{position:relative;height:min(52vh,420px);border-radius:18px;overflow:hidden;display:grid;grid-template-columns:repeat(3,1fr);
+  background:linear-gradient(to bottom,color-mix(in srgb,var(--c6) 14%,var(--card)),color-mix(in srgb,var(--c4) 10%,var(--card)));border:1.5px solid var(--line)}
+.catch .lane{border-inline-end:1.5px dashed color-mix(in srgb,var(--fg) 12%,transparent);cursor:pointer}
+.catch .lane:last-of-type{border:0}
+.drops{position:absolute;inset:0 0 auto 0;height:100%;pointer-events:none;will-change:transform}
+.drop{position:absolute;top:0;width:33.333%;padding:6px;pointer-events:auto;cursor:pointer}
+.drop span{display:block;padding:10px 6px;border-radius:14px;background:var(--k);color:var(--card);font-weight:800;text-align:center;font-size:15px;line-height:1.25;overflow-wrap:anywhere;box-shadow:0 4px 10px color-mix(in srgb,var(--k) 35%,transparent)}
+.drop.right span{background:var(--ok)}
+.drop.wrong span{background:var(--bad)}
+.drop.fade{opacity:.25}
+.basket{position:absolute;bottom:8px;width:56px;text-align:center;font-size:44px;line-height:1;transition:inset-inline-start .15s;pointer-events:none}
+.basket.yay{animation:hop .4s ease-out}

@@ -123,6 +123,7 @@ function playBlob(blob){
 }
 async function speak(text, lang){
   if (!canSpeak || !String(text).trim()) return;
+  ttsUsed = true;
   stopSpeech(); const my = speakSeq;
   lang = guessLang(text, lang);
   const parts = chunksOf(text);
@@ -161,7 +162,7 @@ function fixSet(s){
     termLang: s.termLang || '', defLang: s.defLang || '', alphabet: !!s.alphabet, example: !!s.example,
     cards: arr(s.cards), mcq: arr(s.mcq), scr: arr(s.scr), topics: arr(s.topics), lesson: arr(s.lesson), reading: arr(s.reading),
     known: s.known && typeof s.known === 'object' ? s.known : {}, best: s.best && typeof s.best === 'object' ? s.best : {},
-    srs: s.srs && typeof s.srs === 'object' ? s.srs : {}, folder: typeof s.folder === 'string' ? s.folder.slice(0, 40) : '', last: typeof s.last === 'string' ? s.last : '', vok: s.vok && typeof s.vok === 'object' ? s.vok : {}, wordTr: s.wordTr && typeof s.wordTr === 'object' ? s.wordTr : {}, level: typeof s.level === 'string' ? s.level.slice(0, 30) : '', learn: typeof s.learn === 'string' ? s.learn.slice(0, 5) : '', challenge: s.challenge && typeof s.challenge === 'object' ? s.challenge : null };
+    srs: s.srs && typeof s.srs === 'object' ? s.srs : {}, folder: typeof s.folder === 'string' ? s.folder.slice(0, 40) : '', last: typeof s.last === 'string' ? s.last : '', nextStory: s.nextStory && s.nextStory.r ? s.nextStory : undefined, vok: s.vok && typeof s.vok === 'object' ? s.vok : {}, wordTr: s.wordTr && typeof s.wordTr === 'object' ? s.wordTr : {}, level: typeof s.level === 'string' ? s.level.slice(0, 30) : '', learn: typeof s.learn === 'string' ? s.learn.slice(0, 5) : '', challenge: s.challenge && typeof s.challenge === 'object' ? s.challenge : null };
 }
 
 /* An option like "five (חמש)" gives the answer away: drop a bracketed part written in another script than the option itself. */
@@ -569,6 +570,7 @@ function runQuiz(title, qs, back, opts){
       <button class="btn primary wide" type="submit" id="chk">בדוק</button></form>`;
     app.innerHTML = `${topbar(title, (i + 1) + '/' + qs.length)}<div class="bar"><i style="width:${i / qs.length * 100}%"></i></div>${body}<div id="after"></div>`;
     if (q.type === 'dict') setTimeout(() => speak(q.c.t, s.termLang), 250);
+    const nq = qs[i + 1]; if (nq && nq.c) prefetchSay(nq.c.t, nq.s.termLang, nq.type === 'dict');
     if (q.type === 'write' || q.type === 'dict') setTimeout(() => { const inp = document.getElementById('ans'); if (inp) inp.focus(); }, 60);
   }
   function finish(){
@@ -1037,7 +1039,7 @@ function mcqPool(s){
   return out;
 }
 
-const MODE_NAME = { flash:'כרטיסיות', mcq:'אמריקאיות', match:'התאמת זוגות', write:'כתיבה', read:'קטע קריאה', scr:'סידור אותיות', dict:'הכתבה', case:'גדולות וקטנות', test:'מבחן', review:'חזרה' };
+const MODE_NAME = { balloon:'הצל את הבלון', sentence:'בנה משפט', catch:'תפוס את הנכון', flash:'כרטיסיות', mcq:'אמריקאיות', match:'התאמת זוגות', write:'כתיבה', read:'קטע קריאה', scr:'סידור אותיות', dict:'הכתבה', case:'גדולות וקטנות', test:'מבחן', review:'חזרה' };
 function viewSet(s){
   leave(); curView = 'set';
   if (!s) return viewHome();
@@ -1053,6 +1055,9 @@ function viewSet(s){
     { id:'lesson', c:4, ic:I.book, name:'שיעור קצר', ok: any }
   ].filter(m => m.ok);
   const more = [
+    { id:'balloon', c:1, ic:'<span class="emo">🎈</span>', name:'הצל את הבלון', ok: balloonWords(s).length >= 3 },
+    { id:'catch', c:3, ic:'<span class="emo">🧺</span>', name:'תפוס את הנכון', ok: mp.length >= 3 },
+    { id:'sentence', c:5, ic:'<span class="emo">🧩</span>', name:'בנה משפט', ok: sentencesOf(s).length >= 3 },
     { id:'scr', c:3, ic:I.scr, name:'סידור אותיות', ok: scr.length > 0 },
     { id:'dict', c:0, ic:I.say, name:'הכתבה', ok: speakable },
     { id:'case', c:4, ic:I.Aa, name: ci.name, ok: cp.length >= 3 && !ci.hide },
@@ -1070,7 +1075,7 @@ function viewSet(s){
     </div>
     ${any ? `<button class="btn colored wide big" data-c="2" data-a="go">▶ התחל לתרגל${due ? ` <small>${due} מילים לחזרה היום</small>` : ''}</button>` : ''}
     <div class="modes">${main.map(tile).join('')}</div>
-    ${more.length ? `<details class="more"><summary>עוד משחקים</summary><div class="modes small">${more.map(tile).join('')}</div></details>` : ''}
+    ${more.length ? `<details class="more"><summary>🎮 משחקים</summary><div class="modes small">${more.map(tile).join('')}</div></details>` : ''}
     ${mp.length >= 4 ? `<button class="btn wide" data-mode="vs">⚔️ שחק מול חבר</button>` : ''}`;
   app.onclick = e => {
     const m = e.target.closest('[data-mode]');
@@ -1081,6 +1086,7 @@ function viewSet(s){
     if (a.dataset.a === 'edit') return viewEditSet(s);
     if (a.dataset.a === 'go') return startMode(s, 'go');
   };
+  prepareAhead(s);
 }
 
 // one screen for everything that changes a set: name, words, questions, folder, color, more pages, delete
@@ -1193,7 +1199,7 @@ function startMode(s, mode){
   ({ flash: modeFlash, mcq: modeMcq,
      match: () => modeMatch(s, s.cards.map(c => [c.t, c.d]), 'התאמת זוגות', 'match'),
      case: () => { const ci = caseInfo(s); return modeMatch(s, ci.pairs, ci.name, 'case'); },
-     scr: modeScr, write: modeWrite, lesson: modeLesson, videos: modeVideos, read: modeReadPick, vs: s => vsHome({ set: s }), review: modeReview, test: modeTest, dict: modeDict })[mode](s);
+     scr: modeScr, write: modeWrite, balloon: modeBalloon, sentence: modeSentence, catch: modeCatch, lesson: modeLesson, videos: modeVideos, read: modeReadPick, vs: s => vsHome({ set: s }), review: modeReview, test: modeTest, dict: modeDict })[mode](s);
 }
 
 function modeFlash(s, onlyUnknown, reverse){
@@ -1202,7 +1208,7 @@ function modeFlash(s, onlyUnknown, reverse){
   if (!deck.length) deck = shuffle(s.cards);
   let i = 0, flipped = false, right = 0; const missed = [];
   function draw(){
-    const c = deck[i];
+    const c = deck[i]; if (deck[i + 1]) prefetchSay(deck[i + 1].t, s.termLang);
     const front = reverse ? c.d : c.t, back = reverse ? c.t : c.d;
     const fl = reverse ? s.defLang : s.termLang, bl = reverse ? s.termLang : s.defLang;
     app.innerHTML = `${topbar('כרטיסיות', (i + 1) + '/' + deck.length)}
@@ -1278,7 +1284,7 @@ function modeMatch(s, allPairs, title, key){
   const tiles = shuffle(pairs.flatMap((p, k) => [{ k, txt: p[0], side: 0 }, { k, txt: p[1], side: 1 }]));
   let sel = null, done = 0, errs = 0; const t0 = Date.now();
   app.innerHTML = `${topbar(title, '0.0')}<p class="muted small">הקש על שני כרטיסים שמתאימים זה לזה.</p>
-    <div class="tiles">${tiles.map((t, i) => `<button class="tile" data-t="${i}" dir="auto">${esc(t.txt.length > 70 ? t.txt.slice(0, 68) + '…' : t.txt)}</button>`).join('')}</div>`;
+    <div class="tiles">${tiles.map((t, i) => `<button class="tile" data-c="${i % 6}" data-t="${i}" dir="auto">${esc(t.txt.length > 70 ? t.txt.slice(0, 68) + '…' : t.txt)}</button>`).join('')}</div>`;
   const cnt = document.getElementById('cnt');
   const iv = setInterval(() => { cnt.textContent = ((Date.now() - t0) / 1000).toFixed(1); }, 100);
   cleanup = () => clearInterval(iv);
@@ -1352,6 +1358,161 @@ function modeScr(s){
   };
 }
 
+/* ---------------- learning games ---------------- */
+// Save the balloon: spell a word letter by letter from its meaning. Each wrong letter lets some air out.
+const ABC_OF = { lat: 'abcdefghijklmnopqrstuvwxyz', heb: 'אבגדהוזחטיכלמנסעפצקרשת', cyr: 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя', ara: 'ابتثجحخدذرزسشصضطظعغفقكلمنهوي' };
+function balloonWords(s){
+  return s.cards.map(c => ({ c, w: String(c.t).trim() })).filter(x => /^[\p{L}' -]{3,14}$/u.test(x.w) && (x.w.match(/\p{L}/gu) || []).length >= 3);
+}
+function balloonSvg(left, max){
+  const k = .55 + .45 * left / max;
+  return `<svg class="balloon" viewBox="0 0 120 170" aria-hidden="true">
+    <path d="M60 116 C58 130 66 140 58 168" stroke="#8a90a0" stroke-width="2" fill="none"/>
+    <g style="transform:scale(${k});transform-origin:60px 116px;transition:transform .35s">
+      <ellipse cx="60" cy="62" rx="44" ry="54" fill="var(--k)"/><ellipse cx="44" cy="40" rx="10" ry="16" fill="#fff" opacity=".35"/>
+      <path d="M54 114 L66 114 L60 122 Z" fill="var(--k)"/></g></svg>`;
+}
+function modeBalloon(s){
+  leave();
+  const items = shuffle(balloonWords(s)).slice(0, 6), MAX = 6;
+  let i = 0, saved = 0, guessed, miss;
+  function setup(){ guessed = new Set(); miss = 0; draw(); }
+  function keys(w){
+    const low = w.toLowerCase(), sc = /\p{Script=Hebrew}/u.test(low) ? 'heb' : /\p{Script=Cyrillic}/u.test(low) ? 'cyr' : /\p{Script=Arabic}/u.test(low) ? 'ara' : 'lat';
+    const need = [...new Set([...low].filter(ch => /\p{L}/u.test(ch)))];
+    const extra = shuffle([...ABC_OF[sc]].filter(ch => !need.includes(ch))).slice(0, Math.max(4, 14 - need.length));
+    return shuffle([...need, ...extra]);
+  }
+  let kb = [];
+  function draw(state){
+    const it = items[i], w = it.w, low = w.toLowerCase();
+    const done = [...low].every(ch => !/\p{L}/u.test(ch) || guessed.has(ch));
+    if (!state) kb = kb.length && kb.w === w ? kb : Object.assign(keys(w), { w });
+    app.innerHTML = `${topbar('הצל את הבלון', (i + 1) + '/' + items.length)}
+      <div class="bar"><i style="width:${i / items.length * 100}%"></i></div>
+      <div class="balloonbox" data-c="${i % 6}">${state === 'lost' ? '<div class="pop">💥</div>' : balloonSvg(MAX - miss, MAX)}${mascot(state === 'won' ? 'happy' : state === 'lost' ? '' : 'think')}</div>
+      <div class="panel stack center"><span class="eyebrow">איזו מילה זו?</span><p class="q" dir="auto">${esc(it.c.d)}</p></div>
+      <div class="slots ${state === 'won' ? 'ok' : state === 'lost' ? 'no' : ''}" dir="auto">${[...w].map(ch => /\p{L}/u.test(ch) ? `<span class="slot">${guessed.has(ch.toLowerCase()) || state === 'lost' ? esc(ch) : ''}</span>` : `<span class="gap">${ch === ' ' ? '&nbsp;' : esc(ch)}</span>`).join('')}</div>
+      ${state ? `<button class="btn primary wide big" data-x="next">${i + 1 < items.length ? 'למילה הבאה' : 'לתוצאה'}</button>`
+        : `<div class="letters" dir="auto">${kb.map(ch => `<button class="letter ${guessed.has(ch) ? (low.includes(ch) ? 'used good' : 'used bad') : ''}" data-l="${esc(ch)}" ${guessed.has(ch) ? 'disabled' : ''}>${esc(ch)}</button>`).join('')}</div>
+        <p class="small muted center">נשארו ${MAX - miss} ניסיונות</p>`}`;
+    if (!state && done) finish(true);
+  }
+  function finish(won){
+    const it = items[i];
+    if (won) saved++;
+    srsMark(s, it.c.id, won && miss <= 2); award(won); saveSoon(s);
+    if (won) speak(it.w, s.termLang);
+    draw(won ? 'won' : 'lost');
+  }
+  setup();
+  app.onclick = e => {
+    if (e.target.closest('[data-a="quit"]')) return viewSet(s);
+    if (e.target.closest('[data-x="next"]')) { i++; if (i >= items.length) return resultView(s, 'הצל את הבלון', `${saved}/${items.length}`, 'בלונים שהצלת', () => modeBalloon(s)); kb = []; return setup(); }
+    const l = e.target.closest('[data-l]'); if (!l || l.disabled) return;
+    const ch = l.dataset.l; guessed.add(ch);
+    if (!items[i].w.toLowerCase().includes(ch)) { miss++; if (miss >= MAX) return finish(false); }
+    draw();
+  };
+}
+
+// Build the sentence: the words of a sentence from the set's stories, mixed up; put them back in order.
+function sentencesOf(s){
+  const out = [];
+  s.reading.forEach(r => String(r.text).replace(/([.!?؟])\s+/g, '$1\u0001').split(/\u0001|\n+/).forEach(t => {
+    t = t.trim(); const n = t.split(/\s+/).length;
+    if (n >= 4 && n <= 10 && !/[֐-׿]/.test(t)) out.push({ t, lang: r.lang });
+  }));
+  s.cards.forEach(c => { const n = String(c.t).trim().split(/\s+/).length; if (n >= 4 && n <= 10) out.push({ t: c.t.trim(), lang: s.termLang, hint: c.d }); });
+  return out;
+}
+function modeSentence(s){
+  leave();
+  const items = shuffle(sentencesOf(s)).slice(0, 6);
+  let i = 0, firstTry = 0, tries, pool, line;
+  const norm = t => String(t).toLowerCase().replace(/[^\p{L}\p{N}\s']/gu, '').replace(/\s+/g, ' ').trim();
+  function setup(){
+    const words = items[i].t.split(/\s+/); let mixed, guard = 0;
+    do { mixed = shuffle(words.map((w, k) => ({ w, k }))); } while (mixed.map(x => x.k).join() === words.map((_, k) => k).join() && guard++ < 20);
+    pool = mixed; line = []; tries = 0; draw();
+  }
+  function draw(state){
+    const it = items[i], rtl = isRtl(it.t);
+    app.innerHTML = `${topbar('בנה משפט', (i + 1) + '/' + items.length)}
+      <div class="bar"><i style="width:${i / items.length * 100}%"></i></div>
+      <div class="panel stack center"><span class="eyebrow">סדר את המילים למשפט</span>${it.hint ? `<p class="q" dir="auto">${esc(it.hint)}</p>` : ''}</div>
+      <div class="sline ${state || ''}" dir="${rtl ? 'rtl' : 'ltr'}">${line.length ? line.map((x, k) => `<button class="chip word" data-back="${k}">${esc(x.w)}</button>`).join('') : '<span class="muted small">לחץ על המילים לפי הסדר</span>'}</div>
+      <div class="spool" dir="${rtl ? 'rtl' : 'ltr'}">${pool.map((x, k) => `<button class="chip word" data-take="${k}">${esc(x.w)}</button>`).join('')}</div>
+      ${state === 'ok' ? `<p class="note good">נכון! 🎉</p>${sayBtn(it.t, it.lang, 'btn ghost')}<button class="btn primary wide big" data-x="next">${i + 1 < items.length ? 'למשפט הבא' : 'לתוצאה'}</button>`
+        : state === 'show' ? `<p class="note bad" dir="auto">${esc(it.t)}</p><button class="btn primary wide big" data-x="next">${i + 1 < items.length ? 'למשפט הבא' : 'לתוצאה'}</button>`
+        : `<div class="row center">${tries >= 1 ? '<button class="btn ghost" data-x="show">הצג תשובה</button>' : ''}<button class="btn ghost" data-x="clear">התחל מחדש</button></div>`}`;
+  }
+  function check(){
+    const it = items[i];
+    if (norm(line.map(x => x.w).join(' ')) === norm(it.t)) { if (!tries) firstTry++; award(true); speak(it.t, it.lang); return draw('ok'); }
+    tries++; award(false); draw('no'); app.querySelector('.sline').classList.add('shake');
+  }
+  setup();
+  app.onclick = e => {
+    if (e.target.closest('[data-a="quit"]')) return viewSet(s);
+    const tk = e.target.closest('[data-take]'), bk = e.target.closest('[data-back]'), x = e.target.closest('[data-x]');
+    if (tk) { line.push(pool.splice(+tk.dataset.take, 1)[0]); return pool.length ? draw() : check(); }
+    if (bk) { pool.push(line.splice(+bk.dataset.back, 1)[0]); return draw(); }
+    if (!x) return;
+    if (x.dataset.x === 'clear') { pool = [...pool, ...line]; line = []; return draw(); }
+    if (x.dataset.x === 'show') { tries = 9; return draw('show'); }
+    if (x.dataset.x === 'next') { i++; if (i >= items.length) return resultView(s, 'בנה משפט', `${firstTry}/${items.length}`, 'משפטים שסידרת נכון בניסיון הראשון', () => modeSentence(s)); return setup(); }
+  };
+}
+
+// Catch the right one: the answers fall in three lanes; tap a lane to move the basket under the right answer.
+function modeCatch(s){
+  leave();
+  const qs = shuffle(mcqPool(s)).slice(0, 12).map(m => {
+    const others = shuffle(m.o.filter((_, j) => j !== m.a)).slice(0, 2), o = shuffle([m.o[m.a], ...others]);
+    return { ...m, o, a: o.indexOf(m.o[m.a]) };
+  });
+  let i = 0, right = 0, lives = 3, lane = 1, raf = 0, y = 0, speed = 0, last = 0, busy = false;
+  app.innerHTML = `${topbar('תפוס את הנכון', '')}
+    <div class="catchtop"><span id="hearts"></span><span class="pill">⭐ <b id="cscore">0</b></span></div>
+    <div class="panel stack center"><p class="q" dir="auto" id="cq"></p></div>
+    <div class="catch" id="field">${[0, 1, 2].map(k => `<div class="lane" data-lane="${k}"></div>`).join('')}
+      <div class="drops" id="drops"></div><div class="basket" id="basket">🧺</div></div>
+    <p class="small muted center">לחץ על המסלול שבו נופלת התשובה הנכונה</p>`;
+  const field = document.getElementById('field'), drops = document.getElementById('drops'), basket = document.getElementById('basket');
+  const hearts = () => { document.getElementById('hearts').textContent = '❤️'.repeat(lives) + '🤍'.repeat(3 - lives); };
+  const placeBasket = () => { basket.style.insetInlineStart = `calc(${lane * 33.333 + 16.666}% - 28px)`; };
+  function round(){
+    if (i >= qs.length || lives <= 0) return end();
+    const q = qs[i]; busy = false;
+    document.getElementById('cq').textContent = q.q; document.getElementById('cnt').textContent = (i + 1) + '/' + qs.length;
+    drops.innerHTML = q.o.map((o, k) => `<div class="drop" data-c="${(i + k) % 6}" style="inset-inline-start:${k * 33.333}%"><span dir="auto">${esc(o)}</span></div>`).join('');
+    y = 0; speed = 0.018 + i * 0.0016; last = performance.now(); raf = requestAnimationFrame(tick);
+  }
+  function tick(t){
+    const dt = Math.min(50, t - last); last = t; y += speed * dt;
+    drops.style.transform = `translateY(${y}%)`;
+    if (y >= 78) return land();
+    raf = requestAnimationFrame(tick);
+  }
+  function land(){
+    if (busy) return; busy = true; cancelAnimationFrame(raf);
+    const q = qs[i], ok = lane === q.a, els = drops.querySelectorAll('.drop');
+    els.forEach((el, k) => el.classList.add(k === q.a ? 'right' : k === lane ? 'wrong' : 'fade'));
+    if (ok) { right++; document.getElementById('cscore').textContent = right; basket.classList.add('yay'); } else { lives--; hearts(); field.classList.add('shake'); }
+    srsMark(s, q.id, ok); award(ok); saveSoon(s);
+    setTimeout(() => { basket.classList.remove('yay'); field.classList.remove('shake'); i++; round(); }, ok ? 650 : 1300);
+  }
+  function end(){ cancelAnimationFrame(raf); resultView(s, 'תפוס את הנכון', `${right}/${qs.length}`, lives > 0 ? 'תשובות שתפסת' : 'נגמרו הלבבות, נסה שוב!', () => modeCatch(s)); }
+  cleanup = () => cancelAnimationFrame(raf);
+  hearts(); placeBasket(); round();
+  app.onclick = e => {
+    if (e.target.closest('[data-a="quit"]')) return viewSet(s);
+    const ln = e.target.closest('[data-lane], .drop'); if (!ln || busy) return;
+    lane = ln.dataset.lane != null ? +ln.dataset.lane : [...drops.children].indexOf(ln); placeBasket();
+  };
+}
+
 function modeWrite(s){
   leave();
   const items = shuffle(s.cards).slice(0, 10);
@@ -1395,23 +1556,65 @@ function materialText(s){
   s.mcq.forEach(m => parts.push('שאלה: ' + m.q + ' | תשובה: ' + m.o[m.a]));
   return parts.join('\n').slice(0, 12000);
 }
-async function makeLesson(s){
-  leave(); curView = 'lesson-gen'; tint(s.color);
-  app.innerHTML = `${topbar('שיעור קצר')}<div class="panel working">
-    ${mascot('think')}
-    <h2>כותב שיעור על החומר</h2><p class="muted">בערך חצי דקה.</p></div>${gameZone()}`;
-  cleanup = startGames();
-  const ctl = new AbortController();
-  app.onclick = e => { if (e.target.closest('[data-a="quit"]')) { ctl.abort(); viewSet(s); } };
-  try {
-    const data = await callApi({ mode: 'lesson', title: s.title, material: materialText(s) }, ctl.signal);
+/* ---------------- getting ready ahead of time ---------------- */
+// Slow things (the short lesson, the next story, the voice of the next word) are prepared in the background
+// while the student is busy with something else, so they open at once when asked for.
+const jobs = new Map();
+function job(key, fn){ if (!jobs.has(key)) jobs.set(key, fn().finally(() => jobs.delete(key))); return jobs.get(key); }
+function lessonJob(s){
+  return job(s.id + ':lesson', async () => {
+    const data = await callApi({ mode: 'lesson', title: s.title, material: materialText(s) });
     const p = normalize(data && data.result);
     if (!p.lesson.length) throw { code: 'bad_json' };
     s.lesson = p.lesson;
     const tk = new Set(s.topics.map(t => t.name)); p.topics.forEach(t => { if (!tk.has(t.name)) s.topics.push(t); });
-    saveSet(s); if (curView === 'lesson-gen') modeLesson(s);
-  } catch(e) {
-    if (e && e.name === 'AbortError') return;
+    if (sets.includes(s)) saveSet(s);
+  });
+}
+const storyDefaults = s => ({ genre: '', level: s.level || 'כיתה ז׳', lang: s.learn || 'he', idea: '' });
+const sameStory = (a, b) => !!(a && b && a.genre === b.genre && a.level === b.level && a.lang === b.lang && !a.idea && !b.idea);
+async function fetchStory(s, o, signal){
+  const words = s.cards.map(c => c.t).filter(t => !isRtl(t)).slice(0, 30).join(', ');
+  const data = await callApi({ mode: 'story', lang: o.lang, level: o.level, genre: o.genre, idea: o.idea, words, avoid: [...s.reading.map(r => r.title), s.nextStory && s.nextStory.r.title].filter(Boolean) }, signal);
+  const r = normalize(data && data.result).reading[0];
+  if (!r) throw { code: 'bad_json' };
+  r.lang = r.lang || o.lang; r.genre = o.genre; r.id = 'r' + rid();
+  return { r, model: data && data.model, nikud: data && data.nikud };
+}
+function storyJob(s){
+  return job(s.id + ':story', async () => { const o = storyDefaults(s); const got = await fetchStory(s, o); s.nextStory = { ...got, o }; if (sets.includes(s)) saveSet(s); });
+}
+// the prepared story becomes a real one
+function useNextStory(s){
+  const n = s.nextStory; if (!n) return null;
+  delete s.nextStory; s.reading.push(n.r); if (s.reading.length > 40) s.reading.shift();
+  saveSet(s); if (n.nikud === false) nikudNote({ nikud: false }); verifySet(s, n.model);
+  prepareAhead(s, 6000);
+  return n.r;
+}
+const wantsStories = s => s.reading.length > 0 || learnCode(s) !== 'he';
+let aheadT = null;
+function prepareAhead(s, delay = 2500){
+  clearTimeout(aheadT);
+  aheadT = setTimeout(async () => {
+    if (!s || !sets.includes(s) || navigator.onLine === false) return;
+    try { if (!s.lesson.length && s.cards.length + s.mcq.length) await lessonJob(s); } catch(e){}
+    try { if (!s.nextStory && wantsStories(s)) await storyJob(s); } catch(e){}
+  }, delay);
+}
+let ttsUsed = false;
+function prefetchSay(text, lang, force){ if ((ttsUsed || force) && text) ttsBlob(chunksOf(text)[0], guessLang(text, lang)).catch(() => {}); }
+
+async function makeLesson(s){
+  leave(); curView = 'lesson-gen'; tint(s.color);
+  app.innerHTML = `${topbar('שיעור קצר')}<div class="panel working">
+    ${mascot('think')}
+    <h2>כותב שיעור על החומר</h2><p class="muted">עוד כמה שניות.</p></div>${gameZone()}`;
+  cleanup = startGames();
+  app.onclick = e => { if (e.target.closest('[data-a="quit"]')) viewSet(s); };
+  try { await lessonJob(s); if (curView === 'lesson-gen') modeLesson(s); }
+  catch(e) {
+    if (curView !== 'lesson-gen') return;
     if (e && e.code === 'need_code') return viewNeedCode(() => makeLesson(s));
     viewSet(s); toast(errText(e));
   }
@@ -1429,6 +1632,7 @@ function modeLesson(s){
   };
 }
 function modeReadPick(s){
+  if (!s.reading.length && s.nextStory) return modeRead(s, useNextStory(s));
   if (!s.reading.length) return modeStoryNew(s);
   if (s.reading.length === 1) return modeRead(s, s.reading[0]);
   leave(); curView = 'practice'; tint(s.color);
@@ -1490,13 +1694,13 @@ async function makeStory(s, o){
   const ctl = new AbortController();
   app.onclick = e => { if (e.target.closest('[data-a="quit"]')) { ctl.abort(); modeStoryNew(s); } };
   try {
-    const words = s.cards.map(c => c.t).filter(t => !isRtl(t)).slice(0, 30).join(', ');
-    const data = await callApi({ mode: 'story', lang: o.lang, level: o.level, genre: o.genre, idea: o.idea, words, avoid: s.reading.map(r => r.title) }, ctl.signal);
-    const r = normalize(data && data.result).reading[0];
-    if (!r) throw { code: 'bad_json' };
-    r.lang = r.lang || o.lang; r.genre = o.genre; r.id = 'r' + rid();
+    // the story prepared in the background fits this choice: use it (or wait for it if it is still being written)
+    if (!(s.nextStory && sameStory(s.nextStory.o, o)) && jobs.has(s.id + ':story') && sameStory(storyDefaults(s), o)) { try { await jobs.get(s.id + ':story'); } catch(e){} }
+    if (curView !== 'story-gen') return;
+    if (s.nextStory && sameStory(s.nextStory.o, o)) { const r = useNextStory(s); return modeRead(s, r); }
+    const got = await fetchStory(s, o, ctl.signal), r = got.r;
     s.reading.push(r); if (s.reading.length > 40) s.reading.shift();
-    saveSet(s); if (curView === 'story-gen') modeRead(s, r); nikudNote(data); verifySet(s, data && data.model);
+    saveSet(s); if (curView === 'story-gen') modeRead(s, r); nikudNote(got); verifySet(s, got.model);
   } catch(e) {
     if (e && e.name === 'AbortError') return;
     if (e && e.code === 'need_code') return viewNeedCode(() => makeStory(s, o));
