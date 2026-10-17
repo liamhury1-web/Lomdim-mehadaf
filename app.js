@@ -41,17 +41,41 @@ const I = {
 };
 
 /* ---------------- the app's pencil friend ---------------- */
-function mascot(mood){
+/* ---------------- the app's little friends: a different one for each subject ---------------- */
+// all drawn here, same friendly face: pencil (general), apple with a muscle (nutrition and sport),
+// flask (science), calculator (math), book (Hebrew, Bible, history, literature), globe (geography),
+// speech bubble (languages), robot (computers)
+function mascotFace(dy, mood){
   const eyes = mood === 'happy' ? '<path d="M24 41q3-4 6 0M34 41q3-4 6 0" stroke="#2a2f3d" stroke-width="2.4" fill="none" stroke-linecap="round"/>'
     : mood === 'think' ? '<circle cx="27" cy="39" r="3" fill="#2a2f3d"/><circle cx="37" cy="39" r="3" fill="#2a2f3d"/><circle cx="28" cy="38" r="1" fill="#fff"/><circle cx="38" cy="38" r="1" fill="#fff"/>'
     : '<circle cx="27" cy="41" r="3.2" fill="#2a2f3d"/><circle cx="37" cy="41" r="3.2" fill="#2a2f3d"/><circle cx="28.2" cy="39.8" r="1.1" fill="#fff"/><circle cx="38.2" cy="39.8" r="1.1" fill="#fff"/>';
   const mouth = mood === 'think' ? '<ellipse cx="32" cy="50" rx="2.6" ry="2.2" fill="#2a2f3d"/>' : mood === 'happy' ? '<path d="M25 48q7 9 14 0z" fill="#2a2f3d"/><path d="M28 51q4 3 8 0" fill="#ff7a8a"/>' : '<path d="M26 49q6 6 12 0" stroke="#2a2f3d" stroke-width="2.4" fill="none" stroke-linecap="round"/>';
-  return `<svg class="mascot ${mood || ''}" viewBox="0 0 64 104" aria-hidden="true">
-    <rect x="17" y="4" width="30" height="14" rx="6" fill="#ff8fab"/><rect x="17" y="15" width="30" height="8" fill="#c7cdd9"/><rect x="17" y="17.5" width="30" height="2" fill="#aab2c2"/>
-    <rect x="17" y="23" width="30" height="50" fill="#ffc93c"/><rect x="27" y="23" width="10" height="50" fill="#ffd866"/>
-    <path d="M17 73h30l-15 25z" fill="#f3cf9c"/><path d="M27.5 90.5h9L32 98z" fill="#3a3f4b"/>
-    <circle cx="22" cy="48" r="3" fill="#ff8fab" opacity=".55"/><circle cx="42" cy="48" r="3" fill="#ff8fab" opacity=".55"/>
-    ${eyes}${mouth}</svg>`;
+  return `<g transform="translate(0 ${dy})"><circle cx="22" cy="48" r="3" fill="#ff8fab" opacity=".55"/><circle cx="42" cy="48" r="3" fill="#ff8fab" opacity=".55"/>${eyes}${mouth}</g>`;
+}
+const MASCOT_BODY = {
+  pencil: ['<rect x="17" y="4" width="30" height="14" rx="6" fill="#ff8fab"/><rect x="17" y="15" width="30" height="8" fill="#c7cdd9"/><rect x="17" y="17.5" width="30" height="2" fill="#aab2c2"/><rect x="17" y="23" width="30" height="50" fill="#ffc93c"/><rect x="27" y="23" width="10" height="50" fill="#ffd866"/><path d="M17 73h30l-15 25z" fill="#f3cf9c"/><path d="M27.5 90.5h9L32 98z" fill="#3a3f4b"/>', 0],
+  apple: ['<path d="M32 30c-4-6-14-7-20 0-8 9-6 28 3 38 5 6 11 7 17 3 6 4 12 3 17-3 9-10 11-29 3-38-6-7-16-6-20 0z" fill="#ff5d6c"/><path d="M20 40c-2 4-3 9-2 13" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".45" fill="none"/><path d="M32 30c0-6 1-10 4-14" stroke="#7a4b2a" stroke-width="3" stroke-linecap="round" fill="none"/><path d="M36 18c6-6 13-5 15-2-4 5-10 6-15 2z" fill="#3cc46f"/><path d="M49 58h7c3 0 4-3 3-6l-1-9" stroke="#ff5d6c" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><ellipse cx="55" cy="53" rx="5" ry="4" fill="#ff5d6c"/><circle cx="58" cy="40" r="4.8" fill="#ff5d6c"/><path d="M51 52q4-4 8-1" stroke="#e8404f" stroke-width="1.8" fill="none" stroke-linecap="round"/>', 12],
+  flask: ['<rect x="25" y="8" width="14" height="6" rx="2" fill="#aab2c2"/><path d="M27 14h10v22l17 46c2 6-2 12-8 12H18c-6 0-10-6-8-12l17-46z" fill="#e8f4ff" stroke="#b9cbe0" stroke-width="2"/><path d="M15 70h34l5 12c2 6-2 12-8 12H18c-6 0-10-6-8-12z" fill="#4fd0e3"/><circle cx="26" cy="78" r="3" fill="#fff" opacity=".7"/><circle cx="38" cy="84" r="2" fill="#fff" opacity=".7"/><circle cx="30" cy="4" r="2.5" fill="#4fd0e3" opacity=".8"/><circle cx="37" cy="1" r="1.6" fill="#4fd0e3" opacity=".6"/>', 14],
+  calc: ['<rect x="12" y="10" width="40" height="84" rx="9" fill="#7a48dc"/><rect x="17" y="16" width="30" height="16" rx="4" fill="#d9f7e3"/><text x="44" y="28.5" font-size="10" font-family="monospace" text-anchor="end" fill="#2a2f3d">123</text>' + [0, 1, 2].map(r => [0, 1, 2].map(c => `<rect x="${18 + c * 10}" y="${66 + r * 9}" width="7" height="6" rx="2" fill="${c === 2 && r === 2 ? '#ffc93c' : '#b9a3f0'}"/>`).join('')).join('') + '<rect x="17" y="34" width="30" height="28" rx="6" fill="#ffd866"/>', 6],
+  book: ['<rect x="10" y="16" width="44" height="76" rx="6" fill="#2f55e4"/><rect x="14" y="20" width="40" height="68" rx="4" fill="#5a7bf0"/><rect x="10" y="16" width="8" height="76" rx="3" fill="#2242b8"/><rect x="50" y="22" width="4" height="64" fill="#f5f0e6"/><rect x="24" y="74" width="22" height="4" rx="2" fill="#ffc93c"/>', 10],
+  globe: ['<path d="M18 92h28" stroke="#7a4b2a" stroke-width="5" stroke-linecap="round"/><path d="M32 82v10" stroke="#7a4b2a" stroke-width="4"/><path d="M8 50a26 26 0 0 0 48 12" stroke="#c7cdd9" stroke-width="3" fill="none"/><circle cx="32" cy="50" r="26" fill="#4fa8ff"/><path d="M14 40c6-6 12-4 14 2s-4 10-10 8-8-6-4-10zM38 26c8 2 14 8 14 14-6 0-10-4-14-2s-6-8 0-12zM40 62c6-2 10 2 8 8s-10 4-10-2z" fill="#3cc46f"/>', 10],
+  bubble: ['<path d="M10 20h44a8 8 0 0 1 8 8v40a8 8 0 0 1-8 8H30l-14 14 2-14h-8a8 8 0 0 1-8-8V28a8 8 0 0 1 8-8z" fill="#ff8fab"/><path d="M14 26h10" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".5"/><text x="51" y="72" font-size="11" font-weight="800" font-family="sans-serif" text-anchor="end" fill="#fff" opacity=".9">Aa</text>', 6],
+  robot: ['<path d="M32 6v10" stroke="#aab2c2" stroke-width="3"/><circle cx="32" cy="6" r="4" fill="#ff5d6c"/><rect x="10" y="16" width="44" height="54" rx="12" fill="#c7d3e6"/><rect x="15" y="24" width="34" height="38" rx="9" fill="#f3f7fc"/><rect x="4" y="34" width="6" height="16" rx="3" fill="#aab2c2"/><rect x="54" y="34" width="6" height="16" rx="3" fill="#aab2c2"/><rect x="18" y="72" width="28" height="22" rx="6" fill="#4fa8ff"/><circle cx="32" cy="83" r="4" fill="#ffc93c"/>', 2]
+};
+function mascotKind(s, text){
+  const t = [s && s.folder, s && s.title, text].filter(Boolean).join(' ');
+  if (/מתמטיקה|חשבון|גאומטר|גיאומטר|אלגבר|משווא|שברים|math/i.test(t)) return 'calc';
+  if (/תזונה|בריאות|ספורט|כושר|אימון|שריר|גוף האדם|nutrition|sport/i.test(t)) return 'apple';
+  if (/מדע|פיזיקה|כימיה|ביולוגיה|טבע|science|physics|chemistry|biology/i.test(t)) return 'flask';
+  if (/מחשב|תכנות|קוד|computer|coding/i.test(t)) return 'robot';
+  if (/גאוגרפ|גיאוגרפ|מפה|יבשות|geograph/i.test(t)) return 'globe';
+  if (/היסטוריה|תנ״ך|תנ"ך|תנך|ספרות|אזרחות|עברית|לשון|history|literature/i.test(t)) return 'book';
+  if (/אנגלית|ערבית|צרפתית|ספרדית|רוסית|גרמנית|english|arabic|french|spanish/i.test(t) || (s && s.cards && learnCode(s) !== 'he')) return 'bubble';
+  return 'pencil';
+}
+function mascot(mood, kind){
+  const [body, dy] = MASCOT_BODY[kind] || MASCOT_BODY.pencil;
+  return `<svg class="mascot ${mood || ''} m-${kind || 'pencil'}" viewBox="0 0 64 104" aria-hidden="true">${body}${mascotFace(dy, mood)}</svg>`;
 }
 function confetti(){
   try { if (matchMedia('(prefers-reduced-motion: reduce)').matches) return; } catch(e){}
@@ -853,7 +877,7 @@ async function generateText(target, text, opts){
   leave(); curView = 'working';
   app.innerHTML = `
     <div class="panel working">
-      ${mascot('think')}
+      ${mascot('think', mascotKind(target, [opts.subject, opts.lang && opts.lang !== 'he' ? 'english' : '', text].join(' ')))}
       <h2>בונה תרגול</h2>
       <p class="muted" dir="auto">${esc(label.length > 80 ? label.slice(0, 78) + '…' : label)}</p>
       <p class="small muted">זה לוקח בדרך כלל חצי דקה עד דקה.</p>
@@ -886,7 +910,7 @@ async function generate(target, note){
   leave(); curView = 'working';
   app.innerHTML = `
     <div class="panel working">
-      ${mascot('think')}
+      ${mascot('think', mascotKind(target, note))}
       <h2>קורא את הדפים</h2>
       <p class="muted" id="st">מכין את התמונות…</p>
       <p class="small muted">זה לוקח בדרך כלל 15–40 שניות.</p>
@@ -1089,7 +1113,7 @@ function viewSet(s){
     <div class="topbar"><button class="iconbtn" data-a="home" aria-label="לכל הסטים">${I.back}</button><div class="grow"></div>
       <button class="iconbtn" data-a="share" aria-label="שתף">${I.share}</button><button class="iconbtn" data-a="edit" aria-label="עריכה">${I.pen}</button></div>
     <div class="stack" style="gap:6px">
-      <h1 class="settitle" dir="auto">${esc(s.title)}</h1>
+      <div class="row settop">${mascot('', mascotKind(s))}<h1 class="settitle grow" dir="auto">${esc(s.title)}</h1></div>
       ${n ? `<div class="row"><div class="meter grow"><i style="width:${Math.round(k / n * 100)}%"></i></div><span class="small count">יודע ${k} מתוך ${n}</span></div>` : ''}
       ${challengeHtml(s)}
     </div>
@@ -1198,7 +1222,7 @@ function resultView(s, title, big, line, again, extra){
   const stars = pct == null ? 3 : pct >= 90 ? 3 : pct >= 60 ? 2 : 1;
   const cheer = pct == null ? 'כל הכבוד!' : pct === 100 ? 'מושלם!' : pct >= 90 ? 'מצוין!' : pct >= 60 ? 'יפה מאוד!' : 'עוד קצת אימון ותצליח!';
   app.innerHTML = `${topbar(title)}<div class="panel result">
-    ${mascot(pct != null && pct < 60 ? '' : 'happy')}
+    ${mascot(pct != null && pct < 60 ? '' : 'happy', s ? mascotKind(s) : 'pencil')}
     <div class="stars" aria-label="${stars} כוכבים">${[1, 2, 3].map(k => `<span class="${k <= stars ? 'on' : ''}" style="animation-delay:${k * .12}s">★</span>`).join('')}</div>
     <h2>${cheer}</h2>
     <div class="score">${b}</div><p class="muted">${line.replace('מושלם! 🎉', '').trim() || '&nbsp;'}</p>
@@ -1410,7 +1434,7 @@ function modeBalloon(s){
     if (!state) kb = kb.length && kb.w === w ? kb : Object.assign(keys(w), { w });
     app.innerHTML = `${topbar('הצל את הבלון', (i + 1) + '/' + items.length)}
       <div class="bar"><i style="width:${i / items.length * 100}%"></i></div>
-      <div class="balloonbox" data-c="${i % 6}">${state === 'lost' ? '<div class="pop">💥</div>' : balloonSvg(MAX - miss, MAX)}${mascot(state === 'won' ? 'happy' : state === 'lost' ? '' : 'think')}</div>
+      <div class="balloonbox" data-c="${i % 6}">${state === 'lost' ? '<div class="pop">💥</div>' : balloonSvg(MAX - miss, MAX)}${mascot(state === 'won' ? 'happy' : state === 'lost' ? '' : 'think', mascotKind(s))}</div>
       <div class="panel stack center"><span class="eyebrow">איזו מילה זו?</span><p class="q" dir="auto">${esc(it.c.d)}</p></div>
       <div class="slots ${state === 'won' ? 'ok' : state === 'lost' ? 'no' : ''}" dir="auto">${[...w].map(ch => /\p{L}/u.test(ch) ? `<span class="slot">${guessed.has(ch.toLowerCase()) || state === 'lost' ? esc(ch) : ''}</span>` : `<span class="gap">${ch === ' ' ? '&nbsp;' : esc(ch)}</span>`).join('')}</div>
       ${state ? `<button class="btn primary wide big" data-x="next">${i + 1 < items.length ? 'למילה הבאה' : 'לתוצאה'}</button>`
@@ -1671,7 +1695,7 @@ function prefetchSay(text, lang, force){ if ((ttsUsed || force) && text) ttsBlob
 async function makeLesson(s){
   leave(); curView = 'lesson-gen'; tint(s.color);
   app.innerHTML = `${topbar('שיעור קצר')}<div class="panel working">
-    ${mascot('think')}
+    ${mascot('think', mascotKind(s))}
     <h2>כותב שיעור על החומר</h2><p class="muted">עוד כמה שניות.</p></div>${gameZone()}`;
   cleanup = startGames();
   app.onclick = e => { if (e.target.closest('[data-a="quit"]')) viewSet(s); };
@@ -1751,7 +1775,7 @@ const nikudNote = d => { if (d && d.nikud === false) setTimeout(() => toast('ה�
 async function makeStory(s, o){
   leave(); curView = 'story-gen'; tint(s.color);
   app.innerHTML = `${topbar('סיפור חדש')}<div class="panel working">
-    ${mascot('think')}
+    ${mascot('think', mascotKind(s))}
     <h2>כותב לך סיפור</h2><p class="muted">${esc((GENRES.find(g => g[0] === o.genre) || GENRES[0])[1])} · ${esc(o.level)}</p></div>${gameZone()}`;
   cleanup = startGames();
   const ctl = new AbortController();

@@ -451,3 +451,7 @@ details.more summary{color:var(--fg)}
 .drop.fade{opacity:.25}
 .basket{position:absolute;bottom:8px;width:56px;text-align:center;font-size:44px;line-height:1;transition:inset-inline-start .15s;pointer-events:none}
 .basket.yay{animation:hop .4s ease-out}
+.settop{flex-wrap:nowrap;align-items:center;gap:10px}
+.settop .mascot{width:40px;flex:none}
+.mascot.m-apple,.mascot.m-globe,.mascot.m-book,.mascot.m-bubble,.mascot.m-robot,.mascot.m-calc,.mascot.m-flask{width:62px}
+.settop .mascot{width:44px!important}
