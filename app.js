@@ -698,7 +698,7 @@ function setStats(s){
 }
 const knownCount = s => s.cards.filter(c => s.known[c.id]).length;
 
-let homeFolder = '';
+let homeFolder = '', manageSets = false, delArmId = '';
 let createTab = 'photo';
 function startCreate(tab){ createTarget = null; pages = []; createTab = tab || 'photo'; viewCreate(); }
 function viewHome(){
@@ -721,7 +721,7 @@ function viewHome(){
         <button class="btn primary grow big" data-a="photo">${I.cam} צלם דף</button>
         <button class="btn primary grow big alt" data-a="topic">${I.pen} כתוב נושא</button>
       </div>
-      <div class="row between"><h2>הסטים שלי</h2><span class="muted small count">${shown.length}</span></div>
+      <div class="row between"><h2>הסטים שלי</h2><button class="btn ghost" data-a="manage">${manageSets ? 'סיום' : '🗑️ מחיקה'}</button></div>
       ${folders.length > 1 ? `<div class="chips">${['', ...folders].map(f => `<button type="button" class="chip" data-folder="${esc(f)}" aria-pressed="${homeFolder === f}">${esc(f || 'הכול')}</button>`).join('')}</div>` : ''}
       <div class="sets">${shown.map(s => {
         const k = knownCount(s), n = s.cards.length, d = dueIds(s).length;
@@ -731,7 +731,8 @@ function viewHome(){
             <h3 dir="auto">${esc(s.title)}</h3>
             ${n ? `<div class="row" style="width:100%"><div class="meter grow"><i style="width:${Math.round(k / n * 100)}%"></i></div><span class="small count">${k}/${n}</span></div>` : `<span class="muted small">${esc(setStats(s))}</span>`}
           </button>
-          <button class="setplay" data-play="${esc(s.id)}" aria-label="${esc(cont)}"><span class="pl">${I.play}</span><span class="small">${esc(cont)}</span></button>
+          ${manageSets ? `<button class="setdel" data-delset="${esc(s.id)}">${delArmId === s.id ? 'בטוח?<br>לחץ שוב' : '🗑️<br>מחק'}</button>`
+            : `<button class="setplay" data-play="${esc(s.id)}" aria-label="${esc(cont)}"><span class="pl">${I.play}</span><span class="small">${esc(cont)}</span></button>`}
         </div>`; }).join('')}</div>
       <button class="btn wide" data-a="vs">⚔️ שחק מול חבר</button>`
     : `
@@ -748,7 +749,9 @@ function viewHome(){
       <div class="row"><button class="btn grow" type="button" data-a="backup">שמור גיבוי</button><button class="btn grow" type="button" data-a="restore">שחזר מגיבוי</button></div>
     </details>`;
   app.onclick = async e => {
-    const o = e.target.closest('[data-open]'); if (o) return viewSet(getSet(o.dataset.open));
+    const o = e.target.closest('[data-open]'); if (o) { manageSets = false; return viewSet(getSet(o.dataset.open)); }
+    const ds = e.target.closest('[data-delset]');
+    if (ds) { const id = ds.dataset.delset; if (delArmId === id) { const x = getSet(id); delArmId = ''; if (x) { removeSet(x); toast('הסט נמחק'); } if (!sets.length) manageSets = false; } else { delArmId = id; setTimeout(() => { if (delArmId === id) { delArmId = ''; if (curView === 'home') viewHome(); } }, 3500); } return viewHome(); }
     const pl = e.target.closest('[data-play]'); if (pl) { const s = getSet(pl.dataset.play); return startMode(s, s.last && MODE_NAME[s.last] ? s.last : 'go'); }
     const fo = e.target.closest('[data-folder]'); if (fo) { homeFolder = fo.dataset.folder; return viewHome(); }
     const a = e.target.closest('[data-a]'); if (!a) return;
@@ -760,6 +763,7 @@ function viewHome(){
       case 'hideinstall': lset('lomdim_install_hide', '1'); return viewHome();
       case 'daily': return dailyReview();
       case 'vs': return vsHome();
+      case 'manage': manageSets = !manageSets; delArmId = ''; return viewHome();
       case 'badges': return toast(BADGES.filter(b => (st.badges || []).includes(b[0])).map(b => b[1] + ' ' + b[2]).join(' · '));
       case 'backup': return backupNow();
       case 'restore': onPickedJson = f => restoreFrom(f); return document.getElementById('pickJson').click();
