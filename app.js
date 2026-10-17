@@ -893,6 +893,8 @@ async function generateText(target, text, opts){
   try {
     const data = await callApi({ mode: 'text', text, subject: opts.subject || '', level: opts.level || '', lang: opts.lang || '', reading: !!opts.reading }, ctl.signal);
     const part = normalize(data && data.result);
+    const raw = data && data.result;
+    if (raw && raw.unclear) throw { code: 'unclear', suggest: Array.isArray(raw.suggest) ? raw.suggest.map(x => String(x).slice(0, 60)).filter(Boolean).slice(0, 3) : [] };
     if (!(part.cards.length || part.mcq.length || part.reading.length)) throw { code: 'empty' };
     const s = target || fixSet({ title: '' });
     mergeInto(s, part);
@@ -904,6 +906,13 @@ async function generateText(target, text, opts){
   } catch(e) {
     if (e && e.name === 'AbortError') return viewCreate();
     if (e && e.code === 'need_code') return viewNeedCode(() => generateText(target, text, opts));
+    if (e && e.code === 'unclear') {
+      viewCreate('לא הבנתי על מה לתרגל. כתוב נושא לימודי, למשל אחד מאלה:');
+      const msg = document.getElementById('msg');
+      if (msg) msg.insertAdjacentHTML('beforeend', `<div class="chips wrap">${(e.suggest.length ? e.suggest : ['מילים באנגלית על חיות', 'שברים לכיתה ה׳', 'מערכת השמש']).map(x => `<button type="button" class="chip" data-sug="${esc(x)}">${esc(x)}</button>`).join('')}</div>`);
+      app.addEventListener('click', ev => { const c = ev.target.closest('[data-sug]'); if (c) { const ta = document.getElementById('topic'); if (ta) { ta.value = c.dataset.sug; ta.focus(); } } });
+      return;
+    }
     viewCreate(e && e.code === 'empty' ? 'לא הצלחתי לבנות תרגול מהטקסט. נסה לנסח את הנושא אחרת.' : errText(e));
     const ta = document.getElementById('topic'); if (ta) ta.value = text;
   }
