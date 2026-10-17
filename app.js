@@ -168,11 +168,13 @@ function fixSet(s){
 /* An option like "five (חמש)" gives the answer away: drop a bracketed part written in another script than the option itself. */
 // function declarations, not consts: fixSet() uses these while saved sets load at startup
 function scriptOf(t){ return /[\u0590-\u05FF]/.test(t) ? 'he' : /[\u0600-\u06FF]/.test(t) ? 'ar' : /\p{L}/u.test(t) ? 'x' : ''; }
+// no answer keeps a bracketed part at its end (a translation or hint there gives the answer away);
+// in math, brackets are part of the answer, so there only a bracket in another language is removed
 function cleanOpt(o){
-  const m = String(o).match(/^(.*?\S)\s*[(（]([^()（）]+)[)）]\s*$/);
-  if (!m) return o;
-  const a = scriptOf(m[1]), b = scriptOf(m[2]);
-  return a && b && a !== b ? m[1] : o;
+  const m = String(o).match(/^(.*?\S)(\s*)[(（]([^()（）]+)[)）]\s*$/);
+  if (!m || !/[\p{L}\p{N}]/u.test(m[3])) return o;
+  const math = /[=+\-×÷*/^²³√<>≤≥]|\d\s*[a-z]\b/i.test(o), a = scriptOf(m[1]), b = scriptOf(m[3]), other = a && b && a !== b;
+  return other || (!math && m[2]) ? m[1] : o;
 }
 function cleanQs(qs){ qs.forEach(m => { if (m && Array.isArray(m.o)) m.o = m.o.map(cleanOpt); }); }
 /* ---------------- shaping the AI answer ---------------- */
@@ -1029,12 +1031,18 @@ function caseInfo(s){
 }
 const casePool = s => caseInfo(s).pairs;
 function mcqPool(s){
-  const out = s.mcq.map(m => ({ id: m.id, q: m.q, o: m.o, a: m.a, x: m.x }));
-  if (s.cards.length >= 4) s.cards.forEach(c => {
-    const others = shuffle(s.cards.filter(o => o !== c && o.d !== c.d)).slice(0, 3).map(o => o.d);
+  const out = s.mcq.map(m => ({ id: m.id, q: m.q, o: m.o.map(cleanOpt), a: m.a, x: m.x }));
+  // questions from the flashcards: not for single letters ("z" → "זד" teaches nothing),
+  // and the wrong answers are written in the same language as the right one
+  const usable = s.cards.filter(c => !/^\s*\p{L}\s*$/u.test(String(c.t)) && !/^\s*\p{L}\s*$/u.test(cleanOpt(c.d)));
+  if (usable.length >= 4) usable.forEach(c => {
+    const right = cleanOpt(c.d), sc = scriptOf(right);
+    const pool = s.cards.filter(o => o !== c && cleanOpt(o.d) !== right).map(o => cleanOpt(o.d));
+    const same = pool.filter(d => scriptOf(d) === sc);
+    const others = shuffle([...new Set(same.length >= 2 ? same : pool)]).slice(0, 3);
     if (others.length < 2) return;
-    const o = shuffle([c.d, ...others]);
-    out.push({ id: c.id, q: c.t, o, a: o.indexOf(c.d), x: '', say: true });
+    const o = shuffle([right, ...others]);
+    out.push({ id: c.id, q: c.t, o, a: o.indexOf(right), x: '', say: true });
   });
   return out;
 }
@@ -1598,9 +1606,25 @@ function prepareAhead(s, delay = 2500){
   clearTimeout(aheadT);
   aheadT = setTimeout(async () => {
     if (!s || !sets.includes(s) || navigator.onLine === false) return;
+    for (const r of s.reading) { try { await glossJob(s, r); } catch(e){} }
     try { if (!s.lesson.length && s.cards.length + s.mcq.length) await lessonJob(s); } catch(e){}
     try { if (!s.nextStory && wantsStories(s)) await storyJob(s); } catch(e){}
+    try { if (s.nextStory) await glossJob(s, s.nextStory.r); } catch(e){}
   }, delay);
+}
+// every word of a foreign-language story gets its meaning in one request, before anyone taps it
+const wordKey = w => String(w).toLowerCase().replace(/^[’'"“”]+|[’'"“”.,!?;:]+$/g, '');
+const isForeign = r => (r.lang || '').slice(0, 2) !== 'he' && !/[֐-׿]/.test(String(r.text).slice(0, 200));
+function glossJob(s, r){
+  if (!r || r.gloss || !isForeign(r)) return Promise.resolve();
+  return job(s.id + ':gloss:' + r.id, async () => {
+    const d = await callApi({ mode: 'gloss', text: String(r.text).slice(0, 4000), lang: (r.lang || s.termLang || 'en').slice(0, 2) });
+    const w = d && d.result && d.result.w;
+    if (!w || typeof w !== 'object') throw { code: 'bad_json' };
+    s.wordTr = s.wordTr || {};
+    Object.keys(w).forEach(k => { const key = wordKey(k), tr = String(w[k] || '').slice(0, 80); if (key && tr && !s.wordTr[key]) s.wordTr[key] = { tr }; });
+    r.gloss = true; if (sets.includes(s)) saveSet(s);
+  });
 }
 let ttsUsed = false;
 function prefetchSay(text, lang, force){ if ((ttsUsed || force) && text) ttsBlob(chunksOf(text)[0], guessLang(text, lang)).catch(() => {}); }
@@ -1724,10 +1748,13 @@ async function wordSheet(s, r, el){
   if (!sh) { sh = document.createElement('div'); sh.id = 'wsheet'; sh.className = 'wsheet'; app.appendChild(sh); }
   const draw = tr => { sh.innerHTML = `<strong dir="auto" class="ww">${esc(word)}</strong><p class="wtr" dir="auto">${tr ? esc(tr) : '<span class="muted">מתרגם…</span>'}</p>`; };
   s.wordTr = s.wordTr || {};
-  const hit = s.wordTr[key];
+  const k2 = wordKey(word), find = () => s.wordTr[key] || s.wordTr[k2];
+  let hit = find();
   draw(hit && hit.tr); sh.hidden = false;
   sh.onclick = () => { sh.hidden = true; el.classList.remove('on'); };
   if (hit) return;
+  const pending = jobs.get(s.id + ':gloss:' + r.id);
+  if (pending) { try { await pending; } catch(e){} hit = find(); if (hit) { if (!sh.hidden && el.classList.contains('on')) draw(hit.tr); return; } }
   try {
     const sentence = (para ? para.textContent : '').replace(/([.!?])\s+/g, '$1\u0001').split('\u0001').find(x => x.includes(word)) || (para ? para.textContent.slice(0, 300) : '');
     const d = await callApi({ mode: 'word', word, sentence, lang });
@@ -1740,7 +1767,8 @@ async function wordSheet(s, r, el){
 function modeRead(s, r){
   leave(); curView = 'practice'; tint(s.color);
   let right = 0, done = 0;
-  const foreign = (r.lang || '').slice(0, 2) !== 'he' && !/[\u0590-\u05FF]/.test(r.text.slice(0, 200));
+  const foreign = isForeign(r);
+  if (foreign && !r.gloss) glossJob(s, r).catch(() => {});
   app.innerHTML = `${topbar('קטע קריאה', r.q.length ? '0/' + r.q.length : '')}
     <article class="panel stack reading" lang="${esc(r.lang || '')}">
       <div class="row between" style="align-items:flex-start"><h2 class="grow" dir="auto">${esc(r.title)}</h2>${sayBtn(r.text, r.lang)}</div>

@@ -121,6 +121,52 @@ const MARKS = {
   ja: 'Japanese readings: after every word that contains kanji, its correct reading in hiragana in parentheses, e.g. 学校(がっこう)',
   zh: 'Chinese pinyin: after every word, its correct pinyin with tone marks in parentheses, e.g. 学校(xuéxiào)'
 };
+/* ---------- other AIs (optional, each needs its own paid API key in Vercel) ---------- */
+// Claude (Anthropic): ANTHROPIC_API_KEY, paid. ChatGPT (OpenAI): OPENAI_API_KEY, paid. Groq: GROQ_API_KEY, free.
+// They check what Gemini wrote, and stand in when Gemini is busy.
+const CLAUDE_KEY = process.env.ANTHROPIC_API_KEY, OPENAI_KEY = process.env.OPENAI_API_KEY;
+const CLAUDE_MODELS = (process.env.ANTHROPIC_MODEL || 'claude-haiku-5-5,claude-sonnet-5-5').split(',').map(m => m.trim()).filter(Boolean);
+const OPENAI_MODELS = (process.env.OPENAI_MODEL || 'gpt-5-mini,gpt-4.1-mini,gpt-4o-mini').split(',').map(m => m.trim()).filter(Boolean);
+function jsonFrom(t){ const a = t.indexOf('{'), z = t.lastIndexOf('}'); return JSON.parse(t.slice(a, z + 1)); }
+async function askClaude(parts, maxTokens){
+  const content = parts.map(p => p.inline_data ? { type: 'image', source: { type: 'base64', media_type: p.inline_data.mime_type || 'image/jpeg', data: p.inline_data.data } } : { type: 'text', text: p.text });
+  for (const M of CLAUDE_MODELS) {
+    try {
+      const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', signal: AbortSignal.timeout(90000),
+        headers: { 'x-api-key': CLAUDE_KEY.trim(), 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        body: JSON.stringify({ model: M, max_tokens: maxTokens, messages: [{ role: 'user', content }] }) });
+      const d = await r.json().catch(() => null);
+      if (!r.ok) { console.error('claude', M, r.status, d?.error?.message); continue; }
+      try { return { j: jsonFrom((d.content || []).map(c => c.text || '').join('')), model: 'claude:' + M }; } catch { console.error('claude', M, 'bad json'); }
+    } catch (e) { console.error('claude', M, e); }
+  }
+  throw { status: 503, code: 'busy' };
+}
+// OpenAI and Groq speak the same API. Groq is free (no card) and runs other companies' open models.
+const GROQ_KEY = process.env.GROQ_API_KEY;
+const GROQ_MODELS = (process.env.GROQ_MODEL || 'openai/gpt-oss-120b,llama-3.3-70b-versatile,qwen/qwen3.6-27b').split(',').map(m => m.trim()).filter(Boolean);
+async function askCompat(label, base, key, models, parts, maxTokens){
+  const hasImg = parts.some(p => p.inline_data);
+  if (hasImg && label === 'groq') throw { status: 503, code: 'busy' };
+  const content = parts.map(p => p.inline_data ? { type: 'image_url', image_url: { url: `data:${p.inline_data.mime_type || 'image/jpeg'};base64,${p.inline_data.data}` } } : { type: 'text', text: p.text });
+  for (const M of models) {
+    for (const json of [true, false]) {
+      try {
+        const r = await fetch(base + '/chat/completions', { method: 'POST', signal: AbortSignal.timeout(90000),
+          headers: { authorization: 'Bearer ' + key.trim(), 'content-type': 'application/json' },
+          body: JSON.stringify({ model: M, messages: [{ role: 'user', content: hasImg ? content : parts.map(p => p.text).join('\n') }], ...(json ? { response_format: { type: 'json_object' } } : {}), max_completion_tokens: maxTokens * 2 }) });
+        const d = await r.json().catch(() => null);
+        if (!r.ok) { console.error(label, M, r.status, d?.error?.message); if (r.status === 400 && json) continue; break; }
+        try { return { j: jsonFrom(d?.choices?.[0]?.message?.content || ''), model: label + ':' + M }; } catch { console.error(label, M, 'bad json'); break; }
+      } catch (e) { console.error(label, M, e); break; }
+    }
+  }
+  throw { status: 503, code: 'busy' };
+}
+const askOpenAI = (parts, max) => askCompat('openai', 'https://api.openai.com/v1', OPENAI_KEY, OPENAI_MODELS, parts, max);
+const askGroq = (parts, max) => askCompat('groq', 'https://api.groq.com/openai/v1', GROQ_KEY, GROQ_MODELS, parts, max);
+const providerOf = m => /^claude/.test(m || '') ? 'claude' : /^openai/.test(m || '') ? 'openai' : /^groq/.test(m || '') ? 'groq' : 'gemini';
+
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   // GET /api/generate?nikud=1 checks the connection to the Hebrew vocalizer
@@ -156,6 +202,15 @@ ${words ? 'If it fits naturally, use a few of these words the student is learnin
 Give it a short title in the passage language${lang === 'he' ? '' : ' with the Hebrew translation in parentheses'}.
 ${READING}
 Reply ONLY JSON: {"reading":[{"title":"","lang":"${lang}","instructions":"","text":"paragraphs split by \\n","questions":[{"q":"","options":["","","",""],"answer":0,"explain":""}]}]}` });
+  } else if (b.mode === 'gloss') {
+    const text = String(b.text || '').slice(0, 4000);
+    if (text.length < 5) return res.status(400).json({ code: 'bad_request' });
+    parts.push({ text: `A Hebrew-speaking student reads this ${LANG_NAMES[String(b.lang || '').slice(0, 2)] || ''} text:
+"""
+${text}
+"""
+For every distinct word in it, give its Hebrew translation as used in this text (1-3 words; for names write the name in Hebrew letters).
+Keys: the word in lowercase, exactly as written in the text, without punctuation. Reply ONLY JSON: {"w":{"word":"תרגום"}}` });
   } else if (b.mode === 'word') {
     const w = String(b.word || '').slice(0, 60), ctx = String(b.sentence || '').slice(0, 400);
     if (!w.trim()) return res.status(400).json({ code: 'bad_request' });
@@ -213,6 +268,13 @@ Reply ONLY JSON: {"tr":"","base":""}` });
     throw last === 429 ? { status: 429, code: 'rate' } : { status: 503, code: 'busy' };
   }
 
+  // ask a given AI; Gemini gets an order of models to try
+  async function askWith(who, parts, maxTokens, think, order){
+    if (who === 'claude') { const r = await askClaude(parts, maxTokens); return r.j; }
+    if (who === 'openai') { const r = await askOpenAI(parts, maxTokens); return r.j; }
+    if (who === 'groq') { const r = await askGroq(parts, maxTokens); return r.j; }
+    return ask(parts, false, maxTokens, think, order);
+  }
   if (b.mode === 'verify') return verify();
 
   // A second model, not the one that wrote the set, solves every question blind. Where the two disagree,
@@ -224,33 +286,36 @@ Reply ONLY JSON: {"tr":"","base":""}` });
     const cards = (Array.isArray(b.cards) ? b.cards : []).slice(0, 45).map(c => ({ id: S(c.id, 40), t: S(c.t, 200), d: S(c.d, 300) })).filter(c => c.id && c.t && c.d);
     const texts = (Array.isArray(b.texts) ? b.texts : []).slice(0, 4).map(r => ({ id: S(r.id, 40), text: S(r.text, 5000) }));
     if (!qs.length && !cards.length) return res.status(200).json({ changes: { q: [], cards: [] }, checked: 0 });
-    const avoid = S(b.model, 60);
+    const avoid = S(b.model, 60), writer = providerOf(avoid);
+    const have = ['claude', 'openai', 'groq'].filter(p => ({ claude: CLAUDE_KEY, openai: OPENAI_KEY, groq: GROQ_KEY })[p] && p !== writer);
+    const checker = have[0] || 'gemini';
+    const judge = have.find(p => p !== checker) || 'gemini';
     // the checker is a different model than the writer, the stronger (non-lite) ones first
     const lite = m => /lite/.test(m) ? 1 : 0;
     const order = [...MODELS.filter(m => m.trim() !== avoid).sort((x, y) => lite(x) - lite(y)), ...MODELS.filter(m => m.trim() === avoid)];
     const passages = texts.length ? 'Reading passages (answer their questions only from the passage):\n' + texts.map(r => `[${r.id}]\n${r.text}`).join('\n\n') + '\n\n' : '';
     try {
-      const one = await ask([{ text: `You are checking study material that another AI wrote for a Hebrew-speaking student${b.level ? ' (' + S(b.level, 30) + ')' : ''}. Work independently and carefully.
+      const one = await askWith(checker, [{ text: `You are checking study material that another AI wrote for a Hebrew-speaking student${b.level ? ' (' + S(b.level, 30) + ')' : ''}. Work independently and carefully.
 1) Solve every multiple-choice question yourself (math step by step) and give the index (0-based) of the correct option. "clear": false if the question is ambiguous, has no correct option, or has more than one correct option.
 2) Check every flashcard: is the definition or translation correct for the term? List only wrong ones, with the correct definition in the same language as the old one.
 ${passages}Questions:
 ${qs.map(q => `[${q.id}]${q.ctx ? ' (passage ' + q.ctx + ')' : ''} ${q.q}\n${q.o.map((o, i) => `  ${i}) ${o}`).join('\n')}`).join('\n')}
 Flashcards:
 ${cards.map(c => `[${c.id}] ${c.t} = ${c.d}`).join('\n')}
-Reply ONLY JSON: {"answers":[{"id":"","answer":0,"clear":true}],"badCards":[{"id":"","def":""}]}` }], false, 6000, 2048, order);
+Reply ONLY JSON: {"answers":[{"id":"","answer":0,"clear":true}],"badCards":[{"id":"","def":""}]}` }], 6000, 2048, order);
       const mine = new Map((Array.isArray(one.answers) ? one.answers : []).map(x => [S(x && x.id, 40), x]));
       const disputed = qs.filter(q => { const x = mine.get(q.id); return x && (Number(x.answer) !== q.a || x.clear === false); });
       const badCards = (Array.isArray(one.badCards) ? one.badCards : []).map(x => ({ id: S(x && x.id, 40), def: S(x && x.def, 300) })).filter(x => x.def && cards.some(c => c.id === x.id));
       const changes = { q: [], cards: [] };
       if (disputed.length || badCards.length) {
-        const two = await ask([{ text: `Two AI checkers disagree about this study material for a Hebrew-speaking student. Decide carefully what is correct (math step by step).
+        const two = await askWith(judge, [{ text: `Two AI checkers disagree about this study material for a Hebrew-speaking student. Decide carefully what is correct (math step by step).
 For each question: give the index (0-based) of the one correct option, or -1 if the question is ambiguous, has no correct option or more than one.
 For each flashcard: "old" if the old definition is correct, "new" if the proposed one is correct.
 ${passages}Questions:
 ${disputed.map(q => { const x = mine.get(q.id); return `[${q.id}]${q.ctx ? ' (passage ' + q.ctx + ')' : ''} ${q.q}\n${q.o.map((o, i) => `  ${i}) ${o}`).join('\n')}\n  checker A says ${q.a}; checker B says ${x.clear === false ? 'unclear' : Number(x.answer)}`; }).join('\n')}
 Flashcards:
 ${badCards.map(x => { const c = cards.find(c => c.id === x.id); return `[${x.id}] ${c.t} | old: ${c.d} | proposed: ${x.def}`; }).join('\n')}
-Reply ONLY JSON: {"questions":[{"id":"","answer":0}],"cards":[{"id":"","pick":"old"}]}` }], false, 4000, 2048);
+Reply ONLY JSON: {"questions":[{"id":"","answer":0}],"cards":[{"id":"","pick":"old"}]}` }], 4000, 2048);
         const verdict = new Map((Array.isArray(two.questions) ? two.questions : []).map(x => [S(x && x.id, 40), Number(x && x.answer)]));
         disputed.forEach(q => {
           const v = verdict.get(q.id);
@@ -261,13 +326,21 @@ Reply ONLY JSON: {"questions":[{"id":"","answer":0}],"cards":[{"id":"","pick":"o
         const cv = new Map((Array.isArray(two.cards) ? two.cards : []).map(x => [S(x && x.id, 40), S(x && x.pick, 5)]));
         badCards.forEach(x => { if (cv.get(x.id) === 'new') changes.cards.push({ id: x.id, d: x.def }); });
       }
-      return res.status(200).json({ changes, checked: qs.length + cards.length });
+      return res.status(200).json({ changes, checked: qs.length + cards.length, by: [checker, judge] });
     } catch (e) { return res.status(e.status || 503).json({ code: e.code || 'busy' }); }
   }
 
   let result;
-  try { result = await ask(parts, grounded, b.mode === 'word' ? 300 : story ? 6000 : 8192, b.mode === 'word' ? 0 : b.mode === 'explain' ? 512 : 1024); }
-  catch (e) { return res.status(e.status || 503).json({ code: e.code || 'busy' }); }
+  const maxOut = b.mode === 'word' ? 300 : b.mode === 'gloss' ? 6000 : story ? 6000 : 8192;
+  try { result = await ask(parts, grounded, maxOut, b.mode === 'word' || b.mode === 'gloss' ? 0 : b.mode === 'explain' ? 512 : 1024); }
+  catch (e) {
+    let ok = false;
+    for (const [key, fn] of [[GROQ_KEY, askGroq], [CLAUDE_KEY, askClaude], [OPENAI_KEY, askOpenAI]]) {
+      if (!key || ok || Date.now() - t0 > 100000) continue;
+      try { const r = await fn(parts, maxOut); result = r.j; usedModel = r.model; ok = true; } catch (e2) {}
+    }
+    if (!ok) return res.status(e.status || 503).json({ code: e.code || 'busy' });
+  }
 
   const grade = gradeOf(b.level), lang = String(b.lang || '').slice(0, 2), marks = {};
   // 1) other languages: a second, separate proofreading pass only for the vowel marks
