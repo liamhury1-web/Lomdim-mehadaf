@@ -33,6 +33,26 @@ export default async function handler(req, res) {
   if (!DB || !TOKEN) return res.status(503).json({ code: 'no_db' });
   let b = req.body; if (typeof b === 'string') { try { b = JSON.parse(b); } catch { b = {}; } } b = b || {};
   const now = Date.now(), code = str(b.code, 4);
+
+  // short share links: the whole set is kept under a short code for a year
+  if (b.action === 'put') {
+    const data = str(b.data, 300000);
+    if (!/^[zj][A-Za-z0-9_-]{10,}$/.test(data)) return res.status(400).json({ code: 'bad_request' });
+    const abc = 'abcdefghjkmnpqrstuvwxyz23456789';
+    for (let i = 0; i < 6; i++) {
+      const c = Array.from({ length: 6 }, () => abc[Math.floor(Math.random() * abc.length)]).join('');
+      const [ok] = await redis(['SET', 'k:' + c, data, 'EX', String(60 * 60 * 24 * 365), 'NX']);
+      if (ok === 'OK') return res.status(200).json({ code: c });
+    }
+    return res.status(503).json({ code: 'busy' });
+  }
+  if (b.action === 'get') {
+    const c = str(b.code, 12);
+    if (!/^[a-z0-9]{6}$/.test(c)) return res.status(400).json({ code: 'bad_code' });
+    const [data] = await redis(['GET', 'k:' + c]);
+    return data ? res.status(200).json({ data }) : res.status(404).json({ code: 'not_found' });
+  }
+
   if (b.action !== 'create' && !/^\d{4}$/.test(code)) return res.status(400).json({ code: 'bad_code' });
   const K = c => ({ s: `r:${c}:s`, q: `r:${c}:q`, h: `r:${c}:h`, g: `r:${c}:g` });
 

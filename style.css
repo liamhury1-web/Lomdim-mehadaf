@@ -326,5 +326,54 @@ button,a,summary{-webkit-tap-highlight-color:transparent}
 .settitle{font-size:32px;line-height:1.15}
 h3{color:var(--fg)}
 .opt{min-height:56px}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .hero h1 span{color:#1b2a6b}}
-:root[data-theme="dark"] .hero h1 span{color:#1b2a6b}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .hero h1 span{color:var(--fg);background:linear-gradient(transparent 55%,rgba(255,201,60,.45) 55%,rgba(255,201,60,.45) 92%,transparent 92%)}}
+:root[data-theme="dark"] .hero h1 span{color:var(--fg);background:linear-gradient(transparent 55%,rgba(255,201,60,.45) 55%,rgba(255,201,60,.45) 92%,transparent 92%)}
+[data-say].busy{animation:saypulse 1s ease-in-out infinite}
+@keyframes saypulse{50%{opacity:.55}}
+/* tap a word in a reading passage */
+.tw{cursor:pointer;border-radius:4px;transition:background .12s}
+.tw:hover{background:color-mix(in srgb,var(--k) 12%,transparent)}
+.tw.on{background:var(--hl);color:#1a2035}
+.wsheet{flex-direction:row;align-items:baseline;justify-content:space-between;cursor:pointer;position:fixed;inset-inline:max(12px,calc(50% - 268px));bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:40;background:var(--card);border:1.5px solid var(--line);
+  border-radius:18px;padding:14px 16px;box-shadow:0 12px 32px rgba(16,24,48,.28);display:flex;flex-direction:row;align-items:baseline;justify-content:space-between;gap:12px;animation:sheetin .18s ease-out}
+@keyframes sheetin{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.wsheet[hidden]{display:none}
+.wsheet .ww{font-size:22px}
+.wtr{font-size:20px;font-weight:700;margin:0;color:var(--k,var(--ink))}
+/* spelling: almost right */
+.note.almost{background:color-mix(in srgb,#e8a200 16%,var(--card));border:1.5px solid color-mix(in srgb,#e8a200 50%,var(--line));color:var(--fg)}
+.note mark{background:#ffd34d;color:#1a2035;border-radius:3px;padding:0 1px;text-decoration:underline}
+/* page photos: warning and editor */
+.thumb img{cursor:pointer}
+.thumb .warn{position:absolute;bottom:4px;inset-inline-start:4px;font-size:16px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))}
+.thumb.blurry img{outline:3px solid #e8a200;outline-offset:-3px}
+body:has(.wsheet:not([hidden])) .toast{bottom:calc(210px + env(safe-area-inset-bottom,0px))}
+/* friendlier: set cards with a play button, the pencil friend, stars, confetti */
+.setcard{flex-direction:row;align-items:stretch;gap:0;padding:0;overflow:hidden;cursor:default}
+.setopen{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px;align-items:flex-start;text-align:start;background:none;border:0;font:inherit;color:inherit;padding:16px;cursor:pointer}
+.setopen h3{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.setplay{flex:none;width:92px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;border:0;border-inline-start:1.5px dashed color-mix(in srgb,var(--k) 30%,var(--line));
+  background:color-mix(in srgb,var(--k) 12%,transparent);color:var(--k);font:inherit;font-weight:800;cursor:pointer;padding:8px 6px;text-align:center;line-height:1.2}
+.setplay .pl{width:42px;height:42px;border-radius:50%;background:var(--k);color:var(--card);display:grid;place-items:center}
+.setplay .pl svg{width:20px;height:20px;margin-inline-start:2px}
+.setplay:active .pl{transform:scale(.92)}
+.mascot{width:56px;height:auto;flex:none;filter:drop-shadow(0 4px 6px rgba(20,30,60,.15))}
+.herorow{gap:12px;align-items:flex-end;flex-wrap:nowrap}
+.herorow .mascot{width:44px;transform:rotate(-8deg)}
+.working .mascot{width:64px;animation:bob 1.6s ease-in-out infinite}
+@keyframes bob{50%{transform:translateY(-6px) rotate(4deg)}}
+.result .mascot{width:70px;animation:hop .5s ease-out}
+@keyframes hop{0%{transform:translateY(12px) scale(.9);opacity:0}60%{transform:translateY(-6px)}100%{transform:none;opacity:1}}
+.stars{display:flex;gap:6px;font-size:40px;line-height:1}
+.stars span{color:var(--line);transform:scale(.6);animation:pop .35s ease-out forwards}
+.stars span.on{color:#ffc93c;text-shadow:0 2px 0 #e0a300}
+@keyframes pop{to{transform:scale(1)}}
+.result h2{color:var(--k,var(--ink))}
+.result .score{font-size:44px}
+.confetti{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:60}
+.confetti i{position:absolute;top:-16px;width:9px;height:14px;border-radius:2px;background:var(--k);animation:fall linear forwards}
+@keyframes fall{to{top:105%;transform:rotate(720deg) translateX(40px)}}
+.x.add{background:var(--ok-soft);color:var(--ok);font-size:20px}
+.topbar .btn.primary{min-height:40px;padding-inline:18px}
+.mode{min-height:96px;justify-content:center}
+@media (prefers-reduced-motion:reduce){.working .mascot,.result .mascot{animation:none!important}.stars span{transform:none!important;animation:none!important}}

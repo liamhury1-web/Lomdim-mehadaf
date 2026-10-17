@@ -17,7 +17,7 @@ let cleanup = null;
 function leave(){
   app.onchange = null; app.onsubmit = null;
   if (cleanup) { try { cleanup(); } catch(e){} cleanup = null; }
-  try { speechSynthesis.cancel(); } catch(e){}
+  stopSpeech();
   window.scrollTo(0, 0);
 }
 function tint(c){ if (c === undefined || c === null) delete app.dataset.c; else app.dataset.c = String(c); }
@@ -40,15 +40,103 @@ const I = {
   share:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4"/></svg>'
 };
 
+/* ---------------- the app's pencil friend ---------------- */
+function mascot(mood){
+  const eyes = mood === 'happy' ? '<path d="M24 41q3-4 6 0M34 41q3-4 6 0" stroke="#2a2f3d" stroke-width="2.4" fill="none" stroke-linecap="round"/>'
+    : mood === 'think' ? '<circle cx="27" cy="39" r="3" fill="#2a2f3d"/><circle cx="37" cy="39" r="3" fill="#2a2f3d"/><circle cx="28" cy="38" r="1" fill="#fff"/><circle cx="38" cy="38" r="1" fill="#fff"/>'
+    : '<circle cx="27" cy="41" r="3.2" fill="#2a2f3d"/><circle cx="37" cy="41" r="3.2" fill="#2a2f3d"/><circle cx="28.2" cy="39.8" r="1.1" fill="#fff"/><circle cx="38.2" cy="39.8" r="1.1" fill="#fff"/>';
+  const mouth = mood === 'think' ? '<ellipse cx="32" cy="50" rx="2.6" ry="2.2" fill="#2a2f3d"/>' : mood === 'happy' ? '<path d="M25 48q7 9 14 0z" fill="#2a2f3d"/><path d="M28 51q4 3 8 0" fill="#ff7a8a"/>' : '<path d="M26 49q6 6 12 0" stroke="#2a2f3d" stroke-width="2.4" fill="none" stroke-linecap="round"/>';
+  return `<svg class="mascot ${mood || ''}" viewBox="0 0 64 104" aria-hidden="true">
+    <rect x="17" y="4" width="30" height="14" rx="6" fill="#ff8fab"/><rect x="17" y="15" width="30" height="8" fill="#c7cdd9"/><rect x="17" y="17.5" width="30" height="2" fill="#aab2c2"/>
+    <rect x="17" y="23" width="30" height="50" fill="#ffc93c"/><rect x="27" y="23" width="10" height="50" fill="#ffd866"/>
+    <path d="M17 73h30l-15 25z" fill="#f3cf9c"/><path d="M27.5 90.5h9L32 98z" fill="#3a3f4b"/>
+    <circle cx="22" cy="48" r="3" fill="#ff8fab" opacity=".55"/><circle cx="42" cy="48" r="3" fill="#ff8fab" opacity=".55"/>
+    ${eyes}${mouth}</svg>`;
+}
+function confetti(){
+  try { if (matchMedia('(prefers-reduced-motion: reduce)').matches) return; } catch(e){}
+  const box = document.createElement('div'); box.className = 'confetti'; box.setAttribute('aria-hidden', 'true');
+  box.innerHTML = Array.from({ length: 40 }, (_, i) => `<i data-c="${i % 6}" style="left:${Math.random() * 100}%;animation-delay:${Math.random() * .5}s;animation-duration:${1.6 + Math.random()}s;transform:rotate(${Math.random() * 360}deg)"></i>`).join('');
+  document.body.appendChild(box); setTimeout(() => box.remove(), 3200);
+}
+
 /* ---------------- speech ---------------- */
-const canSpeak = (() => { try { return 'speechSynthesis' in window; } catch(e){ return false; } })();
-function guessLang(text, hint){ if (hint) return hint; if (isRtl(text)) return /[؀-ۿ]/.test(text) ? 'ar' : 'he'; return 'en'; }
-function speak(text, lang){
-  if (!canSpeak) return;
-  try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = guessLang(text, lang); u.rate = .9; speechSynthesis.speak(u); } catch(e){}
+// A natural voice made on the server (Gemini text-to-speech, kept on the phone after the first time),
+// and the phone's own best voice when the server voice is not available.
+const canSpeak = (() => { try { return 'speechSynthesis' in window || typeof Audio !== 'undefined'; } catch(e){ return false; } })();
+function guessLang(text, hint){
+  if (hint) return String(hint).slice(0, 2).toLowerCase();
+  const t = String(text);
+  if (/[؀-ۿ]/.test(t)) return 'ar'; if (/[֐-׿]/.test(t)) return 'he';
+  if (/[Ѐ-ӿ]/.test(t)) return 'ru'; if (/[぀-ヿ]/.test(t)) return 'ja';
+  if (/[一-鿿]/.test(t)) return 'zh'; if (/[ሀ-፿]/.test(t)) return 'am';
+  return 'en';
+}
+let voices = [];
+try { const lv = () => { voices = speechSynthesis.getVoices() || []; }; lv(); speechSynthesis.onvoiceschanged = lv; } catch(e){}
+function bestVoice(lang){
+  const score = v => (/natural|neural|online/i.test(v.name) ? 4 : 0) + (/google/i.test(v.name) ? 3 : 0) + (/enhanced|premium|siri/i.test(v.name) ? 3 : 0) + (v.localService === false ? 1 : 0);
+  return voices.filter(v => String(v.lang).toLowerCase().replace('_', '-').startsWith(lang)).sort((x, y) => score(y) - score(x))[0] || null;
+}
+function speakLocal(text, lang){
+  try {
+    if (!('speechSynthesis' in window)) return Promise.resolve();
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text); u.lang = lang; u.rate = .92;
+    const v = bestVoice(lang); if (v) u.voice = v;
+    return new Promise(res => { u.onend = u.onerror = () => res(); speechSynthesis.speak(u); setTimeout(res, 60000); });
+  } catch(e){ return Promise.resolve(); }
+}
+let player = null, speakSeq = 0, ttsFails = 0;
+function stopSpeech(){ speakSeq++; try { speechSynthesis.cancel(); } catch(e){} if (player) { try { player.pause(); } catch(e){} player = null; } }
+function chunksOf(text){
+  const out = []; let cur = '';
+  for (const piece of String(text).replace(/([.!?…؟。\n])\s+/g, '$1\u0001').split('\u0001')) {
+    if (cur && (cur + ' ' + piece).length > 380) { out.push(cur); cur = ''; }
+    cur = cur ? cur + ' ' + piece : piece;
+    while (cur.length > 420) { out.push(cur.slice(0, 400)); cur = cur.slice(400); }
+  }
+  if (cur.trim()) out.push(cur);
+  return out;
+}
+async function ttsBlob(text, lang){
+  const key = new Request(location.origin + '/__tts/' + lang + '/' + encodeURIComponent(text).slice(0, 1800));
+  let cache = null;
+  try { cache = await caches.open('lomdim-tts'); const hit = await cache.match(key); if (hit) return await hit.blob(); } catch(e){}
+  if (ttsFails >= 3 || navigator.onLine === false) return null;
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 15000);
+  try {
+    const r = await fetch('/api/tts', { method: 'POST', signal: ctl.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, lang }) });
+    if (!r.ok) { ttsFails++; return null; }
+    const blob = await r.blob(); ttsFails = 0;
+    try { if (cache) await cache.put(key, new Response(blob, { headers: { 'content-type': 'audio/wav' } })); } catch(e){}
+    return blob;
+  } catch(e) { ttsFails++; return null; } finally { clearTimeout(t); }
+}
+function playBlob(blob){
+  return new Promise(res => {
+    const url = URL.createObjectURL(blob), a = new Audio(url); player = a;
+    const done = ok => { URL.revokeObjectURL(url); res(ok); };
+    a.onended = () => done(true); a.onerror = () => done(false);
+    a.play().catch(() => done(false));
+  });
+}
+async function speak(text, lang){
+  if (!canSpeak || !String(text).trim()) return;
+  stopSpeech(); const my = speakSeq;
+  lang = guessLang(text, lang);
+  const parts = chunksOf(text);
+  let next = ttsBlob(parts[0], lang);
+  for (let i = 0; i < parts.length; i++) {
+    const blob = await next;
+    if (my !== speakSeq) return;
+    if (i + 1 < parts.length) next = ttsBlob(parts[i + 1], lang);
+    if (!blob || !(await playBlob(blob))) { if (my === speakSeq) return speakLocal(parts.slice(i).join(' '), lang); return; }
+    if (my !== speakSeq) return;
+  }
 }
 const sayBtn = (text, lang, cls = 'iconbtn') => canSpeak ? `<button class="${cls} say" type="button" data-say="${esc(text)}" data-lang="${esc(lang || '')}" aria-label="השמע">${I.say}</button>` : '';
-document.addEventListener('click', e => { const b = e.target.closest('[data-say]'); if (b) { e.stopPropagation(); speak(b.dataset.say, b.dataset.lang); } }, true);
+document.addEventListener('click', e => { const b = e.target.closest('[data-say]'); if (b) { e.stopPropagation(); b.classList.add('busy'); speak(b.dataset.say, b.dataset.lang).finally(() => b.classList.remove('busy')); } }, true);
 
 /* ---------------- storage (on this device) ---------------- */
 const LKEY = 'lomdim_sets_v1', CODEKEY = 'lomdim_access_code';
@@ -73,7 +161,7 @@ function fixSet(s){
     termLang: s.termLang || '', defLang: s.defLang || '', alphabet: !!s.alphabet, example: !!s.example,
     cards: arr(s.cards), mcq: arr(s.mcq), scr: arr(s.scr), topics: arr(s.topics), lesson: arr(s.lesson), reading: arr(s.reading),
     known: s.known && typeof s.known === 'object' ? s.known : {}, best: s.best && typeof s.best === 'object' ? s.best : {},
-    srs: s.srs && typeof s.srs === 'object' ? s.srs : {}, folder: typeof s.folder === 'string' ? s.folder.slice(0, 40) : '', vok: s.vok && typeof s.vok === 'object' ? s.vok : {}, level: typeof s.level === 'string' ? s.level.slice(0, 30) : '', learn: typeof s.learn === 'string' ? s.learn.slice(0, 5) : '', challenge: s.challenge && typeof s.challenge === 'object' ? s.challenge : null };
+    srs: s.srs && typeof s.srs === 'object' ? s.srs : {}, folder: typeof s.folder === 'string' ? s.folder.slice(0, 40) : '', last: typeof s.last === 'string' ? s.last : '', vok: s.vok && typeof s.vok === 'object' ? s.vok : {}, wordTr: s.wordTr && typeof s.wordTr === 'object' ? s.wordTr : {}, level: typeof s.level === 'string' ? s.level.slice(0, 30) : '', learn: typeof s.learn === 'string' ? s.learn.slice(0, 5) : '', challenge: s.challenge && typeof s.challenge === 'object' ? s.challenge : null };
 }
 
 /* An option like "five (חמש)" gives the answer away: drop a bracketed part written in another script than the option itself. */
@@ -162,6 +250,31 @@ async function prepImage(file){
   return { type: /^image\/(jpeg|png|webp|gif)$/.test(file.type) ? file.type : 'image/jpeg', data: await blobToB64(file) };
 }
 
+/* ---------------- photo check and editing ---------------- */
+async function loadBitmap(file){
+  try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+  catch(e) { return await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = URL.createObjectURL(file); }); }
+}
+// sharpness: how much the brightness changes between neighbouring pixels (Laplacian variance) on a small copy
+async function blurScore(file){
+  try {
+    const bmp = await loadBitmap(file), w = 360, h = Math.max(1, Math.round(bmp.height * w / bmp.width));
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    const cx = cv.getContext('2d', { willReadFrequently: true }); cx.drawImage(bmp, 0, 0, w, h);
+    const px = cx.getImageData(0, 0, w, h).data, g = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) g[i] = .299 * px[i * 4] + .587 * px[i * 4 + 1] + .114 * px[i * 4 + 2];
+    let sum = 0, sq = 0, n = 0;
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x, l = 4 * g[i] - g[i - 1] - g[i + 1] - g[i - w] - g[i + w];
+      sum += l; sq += l * l; n++;
+    }
+    const m = sum / n; return sq / n - m * m;
+  } catch(e) { return null; }
+}
+const BLURRY = 70;
+function checkPage(p){ blurScore(p.file).then(v => { p.blurry = v != null && v < BLURRY; if (curView === 'create' && typeof redrawPages === 'function') redrawPages(); }); }
+let redrawPages = null;
+
 /* ---------------- share links (the whole set travels inside the link) ---------------- */
 function b64url(bytes){ let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
 function unb64url(str){ str = str.replace(/-/g, '+').replace(/_/g, '/'); while (str.length % 4) str += '='; const b = atob(str); const out = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) out[i] = b.charCodeAt(i); return out; }
@@ -195,8 +308,11 @@ async function decodeSet(str){
 }
 async function shareSet(s){
   if (!lget('lomdim_name')) { const n = prompt('איך לקרוא לך באתגר? (החבר יראה את השם ואת השיאים שלך)', ''); if (n && n.trim()) lset('lomdim_name', n.trim().slice(0, 30)); }
-  let url;
-  try { url = location.origin + '/#s=' + await encodeSet(s); } catch(e) { return toast('לא הצלחתי ליצור קישור'); }
+  let url, data;
+  try { data = await encodeSet(s); url = location.origin + '/#s=' + data; } catch(e) { return toast('לא הצלחתי ליצור קישור'); }
+  // a short link (the set is kept on the server under a 6-letter code); the long link still works without it
+  try { const r = await fetch('/api/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'put', data }) });
+    const d = await r.json(); if (r.ok && d.code) url = location.origin + '/#k=' + d.code; } catch(e){}
   const chText = (s.best.test != null || s.best.matchTime) ? ' · נסה לשבור את השיא שלי!' : '';
   if (navigator.share) { try { await navigator.share({ title: s.title, text: 'סט לתרגול: ' + s.title + chText, url }); return; } catch(e) { if (e && e.name === 'AbortError') return; } }
   try { await navigator.clipboard.writeText(url); toast('הקישור הועתק'); } catch(e) { prompt('העתק את הקישור:', url); }
@@ -381,6 +497,33 @@ function statsBar(){
 
 /* ---------------- mixed quiz runner: review, test, dictation ---------------- */
 const normAns = t => String(t).toLowerCase().normalize('NFD').replace(/[̀-֑ͯ-ׇ]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+// one wrong, missing or extra letter (two in long words) is "almost": the answer is shown with the wrong spot marked
+function editDist(a, b){
+  const m = [...a], n = [...b], d = Array.from({ length: m.length + 1 }, (_, i) => [i, ...Array(n.length).fill(0)]);
+  for (let j = 1; j <= n.length; j++) d[0][j] = j;
+  for (let i = 1; i <= m.length; i++) for (let j = 1; j <= n.length; j++) d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + (m[i-1] === n[j-1] ? 0 : 1));
+  return d[m.length][n.length];
+}
+function checkAns(given, want){
+  const a = normAns(given), b = normAns(want);
+  if (a === b) return 'ok';
+  const len = [...b].length, dist = editDist(a, b);
+  return len >= 4 && (dist === 1 || (len >= 9 && dist === 2)) ? 'almost' : 'no';
+}
+// the right spelling, with the letters the student missed or got wrong highlighted
+function spellDiff(given, want){
+  const a = [...String(given).trim().toLowerCase()], w = [...String(want)], b = w.map(c => c.toLowerCase());
+  const L = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) L[i][j] = a[i] === b[j] ? L[i+1][j+1] + 1 : Math.max(L[i+1][j], L[i][j+1]);
+  const keep = new Set(); let i = 0, j = 0;
+  while (i < a.length && j < b.length) { if (a[i] === b[j]) { keep.add(j); i++; j++; } else if (L[i+1][j] >= L[i][j+1]) i++; else j++; }
+  return w.map((c, k) => keep.has(k) ? esc(c) : `<mark>${esc(c)}</mark>`).join('');
+}
+function answerNote(res, given, want){
+  if (res === 'ok') return '<p class="note good">נכון!</p>';
+  if (res === 'almost') return `<p class="note almost">כמעט! 🤏 שים לב לאיות: <strong dir="auto">${spellDiff(given, want)}</strong></p>`;
+  return `<p class="note bad">התשובה: <strong dir="auto">${esc(want)}</strong></p><button class="btn ghost" type="button" data-mine="1" data-w="mine">צדקתי, זו רק שגיאת הקלדה</button>`;
+}
 function itemsOf(s){ return [...s.cards.map(c => ({ s, id: c.id, kind: 'card', c })), ...s.mcq.map(m => ({ s, id: m.id, kind: 'mcq', m }))]; }
 function shapeQ(it, prefer){
   if (it.kind === 'mcq') return { ...it, type: 'mcq', q: it.m.q, o: it.m.o, a: it.m.a, x: it.m.x };
@@ -400,9 +543,11 @@ function runQuiz(title, qs, back, opts){
   leave(); curView = 'practice';
   if (!qs.length) { toast('אין שאלות כרגע'); return back(); }
   let i = 0, right = 0, answered = false; const wrong = [];
+  const base = qs.length;
   function record(q, ok){
     if (answered) return; answered = true;
-    if (ok) right++; else wrong.push(q);
+    if (q.again) { srsMark(q.s, q.id, ok); award(ok); saveSoon(q.s); return; }
+    if (ok) right++; else { wrong.push(q); if (q.type === 'mcq') qs.push({ ...q, again: true }); }
     srsMark(q.s, q.id, ok);
     if (q.kind === 'card') { if (ok) q.s.known[q.id] = true; else delete q.s.known[q.id]; }
     award(ok); saveSoon(q.s);
@@ -411,14 +556,14 @@ function runQuiz(title, qs, back, opts){
   function draw(){
     const q = qs[i], s = q.s; answered = false; tint(s.color);
     let body = '';
-    if (q.type === 'mcq') body = `<div class="panel stack"><div class="row" style="align-items:flex-start"><p class="q grow" dir="auto">${esc(q.q)}</p>${q.say ? sayBtn(q.q, s.termLang) : ''}</div></div>
+    if (q.type === 'mcq') body = `<div class="panel stack">${q.again ? '<span class="eyebrow">🔁 עוד הזדמנות לשאלה שטעית בה</span>' : ''}<div class="row" style="align-items:flex-start"><p class="q grow" dir="auto">${esc(q.q)}</p>${q.say ? sayBtn(q.q, s.termLang) : ''}</div></div>
       <div class="opts">${q.o.map((o, j) => `<button class="opt" data-c="${j % 6}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span><span dir="auto">${esc(o)}</span></button>`).join('')}</div>`;
     else if (q.type === 'flash') body = `<div class="panel stack qflash"><span class="eyebrow">אתה יודע מה זה?</span><p class="q" dir="auto">${esc(q.c.t)}</p>${sayBtn(q.c.t, s.termLang)}
       <div id="rev" hidden><p class="explain" dir="auto">${esc(q.c.d)}</p></div>
       <button class="btn wide" type="button" data-show="1">הצג תשובה</button></div>
       <div class="row" id="fl" hidden><button class="btn grow big no" data-f="no">לא ידעתי</button><button class="btn grow big yes" data-f="yes">ידעתי ✓</button></div>`;
     else body = `<div class="panel stack">${q.type === 'dict'
-        ? `<span class="eyebrow">הקשב וכתוב</span><button class="btn colored wide dictbtn" type="button" data-say="${esc(q.c.t)}" data-lang="${esc(s.termLang || '')}">${I.say} השמע שוב</button><p class="small muted" dir="auto">רמז: ${esc(q.c.d)}</p>`
+        ? `<span class="eyebrow">הקשב וכתוב</span><button class="btn colored wide dictbtn" type="button" data-say="${esc(q.c.t)}" data-lang="${esc(s.termLang || '')}">${I.say} השמע שוב</button>`
         : `<span class="eyebrow">כתוב את המילה שמתאימה</span><p class="q" dir="auto">${esc(q.c.d)}</p>`}</div>
       <form id="qf" class="stack"><input type="text" id="ans" dir="auto" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="התשובה שלך" placeholder="התשובה שלך">
       <button class="btn primary wide" type="submit" id="chk">בדוק</button></form>`;
@@ -427,20 +572,20 @@ function runQuiz(title, qs, back, opts){
     if (q.type === 'write' || q.type === 'dict') setTimeout(() => { const inp = document.getElementById('ans'); if (inp) inp.focus(); }, 60);
   }
   function finish(){
-    const pct = Math.round(right / qs.length * 100);
+    const pct = Math.round(right / base * 100);
     if (opts.onDone) opts.onDone(pct, right);
     const extra = wrong.length ? '<button class="btn" data-r="extra">חזרה על הטעויות</button>' : '';
-    resultView(opts.home ? null : qs[0].s, title, opts.test ? pct + '%' : `${right}/${qs.length}`, pct === 100 ? 'מושלם! 🎉' : `${right} נכונות מתוך ${qs.length}`,
+    resultView(opts.home ? null : qs[0].s, title, opts.test ? pct + '%' : `${right}/${base}`, pct === 100 ? 'מושלם! 🎉' : `${right} נכונות מתוך ${base}`,
       only => only ? runQuiz(title, shuffle(wrong).map(q => shapeQ(q, q.type)), back, { home: opts.home }) : (opts.again ? opts.again() : back()), extra);
   }
   draw();
   app.onsubmit = ev => {
     ev.preventDefault();
     const q = qs[i], inp = document.getElementById('ans'); if (answered || !inp || !inp.value.trim()) return;
-    const ok = normAns(inp.value) === normAns(q.c.t); record(q, ok);
-    inp.readOnly = true; inp.style.borderColor = ok ? 'var(--ok)' : 'var(--bad)'; document.getElementById('chk').hidden = true;
-    document.getElementById('after').innerHTML = `<div class="stack">${ok ? '<p class="note good">נכון!</p>'
-      : `<p class="note bad">התשובה: <strong dir="auto">${esc(q.c.t)}</strong></p><button class="btn ghost" type="button" data-mine="1">צדקתי, זו רק שגיאת הקלדה</button>`}${nextBtn()}</div>`;
+    const res = checkAns(inp.value, q.c.t), ok = res !== 'no'; record(q, ok);
+    if (res === 'almost') srsMark(q.s, q.id, false); // counts, but comes back for review
+    inp.readOnly = true; inp.style.borderColor = res === 'ok' ? 'var(--ok)' : res === 'almost' ? 'var(--warn,#c98a00)' : 'var(--bad)'; document.getElementById('chk').hidden = true;
+    document.getElementById('after').innerHTML = `<div class="stack">${answerNote(res, inp.value, q.c.t)}${nextBtn()}</div>`;
   };
   app.onclick = async e => {
     if (e.target.closest('[data-a="quit"]')) return back();
@@ -528,8 +673,8 @@ function viewHome(){
   app.innerHTML = `
     <header class="hero${sets.length ? ' compact' : ''}">
       <div class="rainbow" aria-hidden="true">${[0,1,2,3,4,5].map(c => `<i data-c="${c}"></i>`).join('')}</div>
-      <h1><span>לומדים</span> מהדף</h1>
-      ${sets.length ? '' : '<p class="muted">מצלמים דף או כותבים נושא, והאפליקציה בונה לך תרגול.</p>'}
+      <div class="row herorow">${sets.length ? '' : mascot('')}<h1><span>לומדים</span> מהדף</h1></div>
+      ${sets.length ? '' : '<p class="muted">מצלמים דף או כותבים נושא, ומקבלים תרגול.</p>'}
     </header>
     ${installHtml()}
     ${sets.length ? `
@@ -543,11 +688,14 @@ function viewHome(){
       ${folders.length > 1 ? `<div class="chips">${['', ...folders].map(f => `<button type="button" class="chip" data-folder="${esc(f)}" aria-pressed="${homeFolder === f}">${esc(f || 'הכול')}</button>`).join('')}</div>` : ''}
       <div class="sets">${shown.map(s => {
         const k = knownCount(s), n = s.cards.length, d = dueIds(s).length;
-        return `<button class="setcard" data-c="${s.color}" data-open="${esc(s.id)}">
-          <div class="row between" style="width:100%"><h3 dir="auto">${esc(s.title)}</h3>${d ? `<span class="tag">🔁 ${d}</span>` : s.example ? '<span class="tag">דוגמה</span>' : ''}</div>
-          <span class="muted small">${esc(setStats(s))}</span>
-          ${n ? `<div class="row" style="width:100%"><div class="meter grow"><i style="width:${Math.round(k / n * 100)}%"></i></div><span class="small count">${k}/${n}</span></div>` : ''}
-        </button>`; }).join('')}</div>
+        const cont = s.last && s.last !== 'go' && MODE_NAME[s.last] ? 'המשך: ' + MODE_NAME[s.last] : d ? d + ' לחזרה' : 'תרגל';
+        return `<div class="setcard" data-c="${s.color}">
+          <button class="setopen" data-open="${esc(s.id)}">
+            <h3 dir="auto">${esc(s.title)}</h3>
+            ${n ? `<div class="row" style="width:100%"><div class="meter grow"><i style="width:${Math.round(k / n * 100)}%"></i></div><span class="small count">${k}/${n}</span></div>` : `<span class="muted small">${esc(setStats(s))}</span>`}
+          </button>
+          <button class="setplay" data-play="${esc(s.id)}" aria-label="${esc(cont)}"><span class="pl">${I.play}</span><span class="small">${esc(cont)}</span></button>
+        </div>`; }).join('')}</div>
       <button class="btn wide" data-a="vs">⚔️ שחק מול חבר</button>`
     : `
       <section class="panel stack start">
@@ -564,6 +712,7 @@ function viewHome(){
     </details>`;
   app.onclick = async e => {
     const o = e.target.closest('[data-open]'); if (o) return viewSet(getSet(o.dataset.open));
+    const pl = e.target.closest('[data-play]'); if (pl) { const s = getSet(pl.dataset.play); return startMode(s, s.last && MODE_NAME[s.last] ? s.last : 'go'); }
     const fo = e.target.closest('[data-folder]'); if (fo) { homeFolder = fo.dataset.folder; return viewHome(); }
     const a = e.target.closest('[data-a]'); if (!a) return;
     switch (a.dataset.a) {
@@ -594,7 +743,7 @@ function viewCreate(errMsg){
     ${tab === 'photo' ? `
     <section class="panel stack">
       <p class="muted small">צלם דף אחד או כמה דפים. האפליקציה קוראת אותם ובונה תרגול.</p>
-      <div class="pages" id="pages"></div>
+      <div class="pages" id="pages"></div><div id="pgtip"></div>
       <div class="row">
         <button class="btn primary grow" type="button" data-a="cam">${I.cam} צלם</button>
         <button class="btn grow" type="button" data-a="gal">${I.img} מהגלריה</button>
@@ -626,17 +775,20 @@ function viewCreate(errMsg){
   const pagesEl = document.getElementById('pages'), pc = document.getElementById('pc'), go = document.getElementById('go');
   function drawPages(){
     if (!pagesEl) return;
-    pagesEl.innerHTML = pages.map((p, i) => `<div class="thumb"><img src="${p.url}" alt="דף ${i + 1}"><b>${i + 1}</b><button type="button" data-rm="${i}" aria-label="הסר דף ${i + 1}">×</button></div>`).join('')
+    pagesEl.innerHTML = pages.map((p, i) => `<div class="thumb${p.blurry ? ' blurry' : ''}"><img src="${p.url}" alt="דף ${i + 1}"><b>${i + 1}</b>${p.blurry ? '<span class="warn" title="מטושטש">⚠️</span>' : ''}<button type="button" data-rm="${i}" aria-label="הסר דף ${i + 1}">×</button></div>`).join('')
       + (pages.length && pages.length < maxPages ? `<button class="addtile" type="button" data-a="gal">${I.plus}<span>עוד דף</span></button>` : '');
     pagesEl.hidden = !pages.length;
+    const bl = pages.map((p, i) => p.blurry ? i + 1 : 0).filter(Boolean), tip = document.getElementById('pgtip');
+    if (tip) tip.innerHTML = !pages.length ? '' : bl.length ? `<p class="note almost">⚠️ ${bl.length === 1 ? 'דף ' + bl[0] + ' נראה מטושטש' : 'הדפים ' + bl.join(', ') + ' נראים מטושטשים'}. כדאי לצלם שוב, מקרוב ובאור טוב, כדי שהשאלות ייצאו מדויקות.</p>` : '';
     pc.textContent = pages.length ? (pages.length === 1 ? 'מדף אחד' : 'מ-' + pages.length + ' דפים') : '';
     go.disabled = !pages.length;
   }
-  drawPages();
+  pages.forEach(p => { if (p.blurry === undefined) { p.blurry = false; checkPage(p); } });
+  drawPages(); redrawPages = drawPages;
   onPicked = files => {
     for (const f of files) {
       if (pages.length >= maxPages) { toast('אפשר עד ' + maxPages + ' דפים בבת אחת'); break; }
-      if (!f.type || f.type.startsWith('image/')) pages.push({ file: f, url: URL.createObjectURL(f) });
+      if (!f.type || f.type.startsWith('image/')) { const p = { file: f, url: URL.createObjectURL(f) }; pages.push(p); checkPage(p); }
     }
     if (curView === 'create') drawPages();
   };
@@ -688,7 +840,7 @@ async function generateText(target, text, opts){
   leave(); curView = 'working';
   app.innerHTML = `
     <div class="panel working">
-      <svg class="pen" viewBox="0 0 64 64" aria-hidden="true"><path d="M6 22c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/><path d="M6 36c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/><path d="M6 50c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/></svg>
+      ${mascot('think')}
       <h2>בונה תרגול</h2>
       <p class="muted" dir="auto">${esc(label.length > 80 ? label.slice(0, 78) + '…' : label)}</p>
       <p class="small muted">זה לוקח בדרך כלל חצי דקה עד דקה.</p>
@@ -721,7 +873,7 @@ async function generate(target, note){
   leave(); curView = 'working';
   app.innerHTML = `
     <div class="panel working">
-      <svg class="pen" viewBox="0 0 64 64" aria-hidden="true"><path d="M6 22c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/><path d="M6 36c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/><path d="M6 50c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/></svg>
+      ${mascot('think')}
       <h2>קורא את הדפים</h2>
       <p class="muted" id="st">מכין את התמונות…</p>
       <p class="small muted">זה לוקח בדרך כלל 15–40 שניות.</p>
@@ -885,98 +1037,104 @@ function mcqPool(s){
   return out;
 }
 
+const MODE_NAME = { flash:'כרטיסיות', mcq:'אמריקאיות', match:'התאמת זוגות', write:'כתיבה', read:'קטע קריאה', scr:'סידור אותיות', dict:'הכתבה', case:'גדולות וקטנות', test:'מבחן', review:'חזרה' };
 function viewSet(s){
   leave(); curView = 'set';
   if (!s) return viewHome();
   tint(s.color);
-  let editing = false;
+  const n = s.cards.length, k = knownCount(s), scr = scrItems(s), ci = caseInfo(s), cp = ci.pairs, mp = mcqPool(s);
+  const due = dueIds(s).length, speakable = canSpeak && n > 0, any = n + s.mcq.length > 0;
+  const main = [
+    { id:'flash', c:0, ic:I.cards, name:'כרטיסיות', ok: n > 0 },
+    { id:'mcq', c:1, ic:I.abc, name:'אמריקאיות', ok: mp.length > 0 },
+    { id:'match', c:2, ic:I.match, name:'התאמת זוגות', ok: n >= 3 },
+    { id:'write', c:5, ic:I.pen, name:'כתיבה', ok: n > 0 },
+    { id:'read', c:3, ic:I.book, name:'קטע קריאה', ok: true },
+    { id:'lesson', c:4, ic:I.book, name:'שיעור קצר', ok: any }
+  ].filter(m => m.ok);
+  const more = [
+    { id:'scr', c:3, ic:I.scr, name:'סידור אותיות', ok: scr.length > 0 },
+    { id:'dict', c:0, ic:I.say, name:'הכתבה', ok: speakable },
+    { id:'case', c:4, ic:I.Aa, name: ci.name, ok: cp.length >= 3 && !ci.hide },
+    { id:'test', c:2, ic:I.abc, name: 'מבחן' + (s.best.test != null ? ' · ' + s.best.test + '%' : ''), ok: any },
+    { id:'videos', c:1, ic:I.play, name:'סרטונים', ok: true }
+  ].filter(m => m.ok);
+  const tile = m => `<button class="mode" data-c="${m.c}" data-mode="${m.id}">${m.ic}<strong>${m.name}</strong></button>`;
+  app.innerHTML = `
+    <div class="topbar"><button class="iconbtn" data-a="home" aria-label="לכל הסטים">${I.back}</button><div class="grow"></div>
+      <button class="iconbtn" data-a="share" aria-label="שתף">${I.share}</button><button class="iconbtn" data-a="edit" aria-label="עריכה">${I.pen}</button></div>
+    <div class="stack" style="gap:6px">
+      <h1 class="settitle" dir="auto">${esc(s.title)}</h1>
+      ${n ? `<div class="row"><div class="meter grow"><i style="width:${Math.round(k / n * 100)}%"></i></div><span class="small count">יודע ${k} מתוך ${n}</span></div>` : ''}
+      ${challengeHtml(s)}
+    </div>
+    ${any ? `<button class="btn colored wide big" data-c="2" data-a="go">▶ התחל לתרגל${due ? ` <small>${due} מילים לחזרה היום</small>` : ''}</button>` : ''}
+    <div class="modes">${main.map(tile).join('')}</div>
+    ${more.length ? `<details class="more"><summary>עוד משחקים</summary><div class="modes small">${more.map(tile).join('')}</div></details>` : ''}
+    ${mp.length >= 4 ? `<button class="btn wide" data-mode="vs">⚔️ שחק מול חבר</button>` : ''}`;
+  app.onclick = e => {
+    const m = e.target.closest('[data-mode]');
+    if (m) return startMode(s, m.dataset.mode);
+    const a = e.target.closest('[data-a]'); if (!a) return;
+    if (a.dataset.a === 'home') return viewHome();
+    if (a.dataset.a === 'share') return shareSet(s);
+    if (a.dataset.a === 'edit') return viewEditSet(s);
+    if (a.dataset.a === 'go') return startMode(s, 'go');
+  };
+}
+
+// one screen for everything that changes a set: name, words, questions, folder, color, more pages, delete
+function viewEditSet(s){
+  leave(); curView = 'edit'; tint(s.color);
+  const w = JSON.parse(JSON.stringify({ title: s.title, folder: s.folder || '', color: s.color, cards: s.cards, mcq: s.mcq }));
+  let delArm = 0;
+  const pull = () => {
+    w.title = (document.getElementById('title').value.trim() || w.title).slice(0, 60);
+    w.folder = document.getElementById('folder').value.trim().slice(0, 40);
+    w.cards.forEach(c => { const t = document.getElementById('t_' + c.id), d = document.getElementById('d_' + c.id); if (t) c.t = t.value.trim() || c.t; if (d) c.d = d.value.trim() || c.d; });
+    const nt = document.getElementById('t_new'), nd = document.getElementById('d_new');
+    if (nt && nd && nt.value.trim() && nd.value.trim()) { w.cards.push({ id: 'c' + rid(), t: nt.value.trim(), d: nd.value.trim() }); nt.value = ''; nd.value = ''; }
+  };
   function draw(){
-    const n = s.cards.length, k = knownCount(s), scr = scrItems(s), ci = caseInfo(s), cp = ci.pairs, mp = mcqPool(s);
-    const due = dueIds(s).length, speakable = canSpeak && n > 0, any = n + s.mcq.length > 0;
-    // the main ways to practise; the rest waits under "more"
-    const main = [
-      { id:'flash', c:0, ic:I.cards, name:'כרטיסיות', sub:'הופכים ובודקים', ok: n > 0 },
-      { id:'mcq', c:1, ic:I.abc, name:'אמריקאיות', sub: mp.length + ' שאלות', ok: mp.length > 0 },
-      { id:'match', c:2, ic:I.match, name:'התאמת זוגות', sub:'משחק על זמן', ok: n >= 3 },
-      { id:'write', c:5, ic:I.pen, name:'כתיבה', sub:'כותבים את המילה', ok: n > 0 },
-      { id:'read', c:3, ic:I.book, name:'קטע קריאה', sub: s.reading.length ? s.reading.length + ' סיפורים עם שאלות' : 'סיפור עם שאלות', ok: true },
-      { id:'lesson', c:4, ic:I.book, name:'שיעור קצר', sub:'הסבר על החומר', ok: any }
-    ].filter(m => m.ok);
-    const more = [
-      { id:'scr', c:3, ic:I.scr, name:'סידור אותיות', ok: scr.length > 0 },
-      { id:'dict', c:0, ic:I.say, name:'הכתבה', ok: speakable },
-      { id:'case', c:4, ic:I.Aa, name: ci.name, ok: cp.length >= 3 && !ci.hide },
-      { id:'test', c:2, ic:I.abc, name: 'מבחן מסכם' + (s.best.test != null ? ' · ' + s.best.test + '%' : ''), ok: any },
-      { id:'videos', c:1, ic:I.play, name:'סרטונים', ok: true }
-    ].filter(m => m.ok);
-    const tile = m => `<button class="mode" data-c="${m.c}" data-mode="${m.id}">${m.ic}<strong>${m.name}</strong>${m.sub ? `<span>${esc(m.sub)}</span>` : ''}</button>`;
-    const listHtml = () => {
-      if (!s.cards.length && !s.mcq.length && !editing) return '<p class="muted small">אין עדיין פריטים בסט.</p>';
-      const cards = `<div class="list">${s.cards.map(c => editing
-        ? `<div class="li"><input type="text" id="t_${c.id}" value="${esc(c.t)}" dir="auto" aria-label="מילה"><input type="text" id="d_${c.id}" value="${esc(c.d)}" dir="auto" aria-label="פירוש"><button class="x" type="button" data-del="${c.id}" aria-label="מחק">×</button></div>`
-        : `<div class="li"><span class="t" dir="auto">${esc(c.t)}</span><span dir="auto">${esc(c.d)}</span><span class="known ${s.known[c.id] ? 'on' : ''}" title="${s.known[c.id] ? 'יודע' : 'עוד לא'}"></span></div>`).join('')}
-        ${editing ? `<div class="li"><input type="text" id="t_new" placeholder="מילה חדשה" dir="auto" aria-label="מילה חדשה"><input type="text" id="d_new" placeholder="פירוש" dir="auto" aria-label="פירוש חדש"><span></span></div>` : ''}</div>`;
-      const qs = s.mcq.length ? `<h3>שאלות</h3><div class="list">${s.mcq.map(m => `<div class="qitem"><div dir="auto">${esc(m.q)}<br><span class="small muted" dir="auto">תשובה: ${esc(m.o[m.a])}</span></div>${editing ? `<button class="x" type="button" data-delq="${m.id}" aria-label="מחק שאלה">×</button>` : ''}</div>`).join('')}</div>` : '';
-      return (s.cards.length || editing ? cards : '') + qs;
-    };
     app.innerHTML = `
-      <div class="topbar"><button class="iconbtn" data-a="home" aria-label="לכל הסטים">${I.back}</button><div class="grow"></div>
-        <button class="iconbtn" data-a="share" aria-label="שתף סט">${I.share}</button></div>
-      <div class="stack" style="gap:6px">
-        <h1 class="settitle" dir="auto">${esc(s.title)}</h1>
-        <span class="muted small">${esc(setStats(s))}${n ? ` · יודע <strong>${k}</strong> מתוך ${n}` : ''}</span>
-        ${n ? `<div class="meter"><i style="width:${Math.round(k / n * 100)}%"></i></div>` : ''}
-        ${challengeHtml(s)}
-      </div>
-      ${any ? `<button class="btn colored wide big" data-c="2" data-a="go">▶ התחל לתרגל <small>${due ? due + ' פריטים לחזרה היום' : 'שאלות מעורבות מכל הסוגים'}</small></button>` : ''}
-      <h3>או בחר איך לתרגל</h3>
-      <div class="modes">${main.map(tile).join('')}</div>
-      ${more.length ? `<details class="more"><summary>עוד משחקים ותרגולים</summary><div class="modes small">${more.map(tile).join('')}</div></details>` : ''}
-      ${mp.length >= 4 ? `<button class="btn wide" data-mode="vs">⚔️ שחק על הסט הזה מול חבר</button>` : ''}
-      <details class="more" ${editing ? 'open' : ''}><summary>📋 מה יש בסט</summary>
-        <div class="row end">${editing ? `<button class="btn ghost" data-a="cancel">ביטול</button><button class="btn primary" data-a="saveedit">שמור</button>` : `<button class="btn ghost" data-a="edit">✏️ ערוך מילים</button>`}</div>
-        <div class="stack">${listHtml()}</div>
-      </details>
-      <details class="more"><summary>⚙️ הגדרות הסט</summary>
-        <label class="stack" for="title" style="gap:4px"><span class="small muted">שם הסט</span><input id="title" type="text" value="${esc(s.title)}" dir="auto"></label>
-        <label class="stack" for="folder" style="gap:4px"><span class="small muted">📁 תיקייה</span><input type="text" id="folder" list="folderlist" value="${esc(s.folder || '')}" placeholder="למשל: אנגלית" dir="auto"><datalist id="folderlist">${[...new Set([...SUBJECTS, ...sets.map(x => x.folder).filter(Boolean)])].map(f => `<option value="${esc(f)}">`).join('')}</datalist></label>
-        <span class="small muted">צבע</span>
-        <div class="swatches" role="group" aria-label="צבע הסט">${[0,1,2,3,4,5].map(c => `<button type="button" data-c="${c}" data-color="${c}" aria-pressed="${s.color === c}" aria-label="צבע ${c + 1}"></button>`).join('')}</div>
-        <button class="btn wide" data-a="add">${I.plus} הוסף עוד דפים או נושא</button>
-        <div class="row">${k ? '<button class="btn ghost" data-a="reset">אפס התקדמות</button>' : ''}<span class="grow"></span><button class="btn ghost danger" data-a="del">מחק סט</button></div>
-      </details>`;
+      <div class="topbar"><button class="iconbtn" data-a="back" aria-label="חזרה בלי לשמור">${I.back}</button><div class="grow">עריכה</div>
+        <button class="btn primary" data-a="save">שמור</button></div>
+      <section class="panel stack">
+        <label class="stack" for="title" style="gap:4px"><span class="small muted">שם</span><input id="title" type="text" value="${esc(w.title)}" dir="auto"></label>
+        <label class="stack" for="folder" style="gap:4px"><span class="small muted">📁 תיקייה</span><input type="text" id="folder" list="folderlist" value="${esc(w.folder)}" placeholder="למשל: אנגלית" dir="auto"><datalist id="folderlist">${[...new Set([...SUBJECTS, ...sets.map(x => x.folder).filter(Boolean)])].map(f => `<option value="${esc(f)}">`).join('')}</datalist></label>
+        <div class="swatches" role="group" aria-label="צבע">${[0,1,2,3,4,5].map(c => `<button type="button" data-c="${c}" data-color="${c}" aria-pressed="${w.color === c}" aria-label="צבע ${c + 1}"></button>`).join('')}</div>
+      </section>
+      <section class="panel stack">
+        <h3>מילים</h3>
+        <div class="list">${w.cards.map(c => `<div class="li"><input type="text" id="t_${c.id}" value="${esc(c.t)}" dir="auto" aria-label="מילה"><input type="text" id="d_${c.id}" value="${esc(c.d)}" dir="auto" aria-label="פירוש"><button class="x" type="button" data-del="${c.id}" aria-label="מחק">×</button></div>`).join('')}
+          <div class="li"><input type="text" id="t_new" placeholder="מילה חדשה" dir="auto" aria-label="מילה חדשה"><input type="text" id="d_new" placeholder="פירוש" dir="auto" aria-label="פירוש חדש"><button class="x add" type="button" data-a="addrow" aria-label="הוסף">+</button></div></div>
+        ${w.mcq.length ? `<h3>שאלות</h3><div class="list">${w.mcq.map(m => `<div class="qitem"><div dir="auto">${esc(m.q)}<br><span class="small muted" dir="auto">תשובה: ${esc(m.o[m.a])}</span></div><button class="x" type="button" data-delq="${m.id}" aria-label="מחק שאלה">×</button></div>`).join('')}</div>` : ''}
+      </section>
+      <button class="btn wide" data-a="add">${I.plus} הוסף עוד דפים או נושא</button>
+      <div class="row">${knownCount(s) ? '<button class="btn ghost" data-a="reset">אפס התקדמות</button>' : ''}<span class="grow"></span><button class="btn ghost danger" data-a="del">מחק את הסט</button></div>`;
   }
   draw();
-  app.onchange = e => { if (e.target.id === 'folder') { s.folder = e.target.value.trim().slice(0, 40); saveSet(s); toast(s.folder ? 'הועבר לתיקייה ' + s.folder : 'הוצא מהתיקייה'); return; }
-    if (e.target.id === 'title') { const v = e.target.value.trim(); if (v && v !== s.title) { s.title = v.slice(0, 60); saveSet(s); toast('השם נשמר'); const h = app.querySelector('.settitle'); if (h) h.textContent = s.title; } } };
-  let delArm = 0;
   app.onclick = e => {
     const col = e.target.closest('[data-color]');
-    if (col) { s.color = +col.dataset.color; tint(s.color); saveSet(s); app.querySelectorAll('[data-color]').forEach(b => b.setAttribute('aria-pressed', String(b === col))); return; }
-    const m = e.target.closest('[data-mode]');
-    if (m && !m.disabled) return startMode(s, m.dataset.mode);
-    const d = e.target.closest('[data-del]');
-    if (d) { s.cards = s.cards.filter(c => c.id !== d.dataset.del); delete s.known[d.dataset.del]; return draw(); }
-    const dq = e.target.closest('[data-delq]');
-    if (dq) { s.mcq = s.mcq.filter(q => q.id !== dq.dataset.delq); return draw(); }
+    if (col) { w.color = +col.dataset.color; tint(w.color); app.querySelectorAll('[data-color]').forEach(b => b.setAttribute('aria-pressed', String(b === col))); return; }
+    const d = e.target.closest('[data-del]'); if (d) { pull(); w.cards = w.cards.filter(c => c.id !== d.dataset.del); return draw(); }
+    const dq = e.target.closest('[data-delq]'); if (dq) { pull(); w.mcq = w.mcq.filter(q => q.id !== dq.dataset.delq); return draw(); }
     const a = e.target.closest('[data-a]'); if (!a) return;
     switch (a.dataset.a) {
-      case 'home': return viewHome();
-      case 'share': return shareSet(s);
-      case 'go': return dueIds(s).length ? modeReview(s) : modeTest(s);
-      case 'add': createTarget = s.id; pages = []; createTab = 'photo'; return viewCreate();
-      case 'edit': editing = true; return draw();
-      case 'cancel': { editing = false; try { const fresh = (JSON.parse(lget(LKEY) || '[]') || []).find(x => x.id === s.id); if (fresh) Object.assign(s, fixSet(fresh)); } catch(err){} return draw(); }
-      case 'saveedit': {
-        s.cards.forEach(c => { const t = document.getElementById('t_' + c.id), dd = document.getElementById('d_' + c.id); if (t) c.t = t.value.trim() || c.t; if (dd) c.d = dd.value.trim() || c.d; });
-        const nt = document.getElementById('t_new'), nd = document.getElementById('d_new');
-        if (nt && nd && nt.value.trim() && nd.value.trim()) s.cards.push({ id: 'c' + rid(), t: nt.value.trim(), d: nd.value.trim() });
-        editing = false; saveSet(s); toast('נשמר'); return draw();
+      case 'back': return viewSet(s);
+      case 'addrow': pull(); draw(); { const t = document.getElementById('t_new'); if (t) t.focus(); } return;
+      case 'save': {
+        pull();
+        const gone = new Set(s.cards.map(c => c.id).filter(id => !w.cards.some(c => c.id === id)));
+        gone.forEach(id => delete s.known[id]);
+        Object.assign(s, { title: w.title, folder: w.folder, color: w.color, cards: w.cards, mcq: w.mcq });
+        saveSet(s); toast('נשמר'); return viewSet(s);
       }
-      case 'reset': s.known = {}; saveSet(s); return draw();
+      case 'add': createTarget = s.id; pages = []; createTab = 'photo'; return viewCreate();
+      case 'reset': s.known = {}; s.srs = {}; saveSet(s); toast('ההתקדמות אופסה'); return draw();
       case 'del':
         if (Date.now() - delArm < 3500) { removeSet(s); toast('הסט נמחק'); return viewHome(); }
-        delArm = Date.now(); a.textContent = 'למחוק? לחץ שוב'; setTimeout(() => { if (a.isConnected) a.textContent = 'מחק סט'; }, 3500); return;
+        delArm = Date.now(); a.textContent = 'בטוח? לחץ שוב'; setTimeout(() => { if (a.isConnected) a.textContent = 'מחק את הסט'; }, 3500); return;
     }
   };
 }
@@ -1009,8 +1167,18 @@ function topbar(title, count){
   return `<div class="topbar"><button class="iconbtn" data-a="quit" aria-label="סיום">${I.close}</button><div class="grow">${esc(title)}</div><span class="count" id="cnt">${count || ''}</span></div>`;
 }
 function resultView(s, title, big, line, again, extra){
-  app.innerHTML = `${topbar(title)}<div class="panel result"><div class="score">${big}</div><p>${line}</p>
-    <div class="row center">${extra || ''}<button class="btn primary" data-r="again">שוב</button><button class="btn" data-r="quit">חזרה לסט</button></div></div>`;
+  const b = String(big), m1 = b.match(/^(\d+)%$/), m2 = b.match(/^(\d+)\/(\d+)$/);
+  const pct = m1 ? +m1[1] : m2 && +m2[2] ? Math.round(+m2[1] / +m2[2] * 100) : null;
+  const stars = pct == null ? 3 : pct >= 90 ? 3 : pct >= 60 ? 2 : 1;
+  const cheer = pct == null ? 'כל הכבוד!' : pct === 100 ? 'מושלם!' : pct >= 90 ? 'מצוין!' : pct >= 60 ? 'יפה מאוד!' : 'עוד קצת אימון ותצליח!';
+  app.innerHTML = `${topbar(title)}<div class="panel result">
+    ${mascot(pct != null && pct < 60 ? '' : 'happy')}
+    <div class="stars" aria-label="${stars} כוכבים">${[1, 2, 3].map(k => `<span class="${k <= stars ? 'on' : ''}" style="animation-delay:${k * .12}s">★</span>`).join('')}</div>
+    <h2>${cheer}</h2>
+    <div class="score">${b}</div><p class="muted">${line.replace('מושלם! 🎉', '').trim() || '&nbsp;'}</p>
+    <button class="btn primary wide big" data-r="quit">המשך</button>
+    <div class="row center">${extra || ''}<button class="btn ghost" data-r="again">🔁 שוב</button></div></div>`;
+  if (pct === 100) confetti();
   app.onclick = e => {
     const r = e.target.closest('[data-r]'), q = e.target.closest('[data-a="quit"]');
     if (q || (r && r.dataset.r === 'quit')) return s ? viewSet(s) : viewHome();
@@ -1020,6 +1188,8 @@ function resultView(s, title, big, line, again, extra){
 }
 function startMode(s, mode){
   leave(); curView = 'practice';
+  if (!['vs', 'videos', 'lesson'].includes(mode)) { s.last = mode; saveSoon(s); }
+  if (mode === 'go') return dueIds(s).length ? modeReview(s) : modeTest(s);
   ({ flash: modeFlash, mcq: modeMcq,
      match: () => modeMatch(s, s.cards.map(c => [c.t, c.d]), 'התאמת זוגות', 'match'),
      case: () => { const ci = caseInfo(s); return modeMatch(s, ci.pairs, ci.name, 'case'); },
@@ -1066,13 +1236,13 @@ function modeFlash(s, onlyUnknown, reverse){
 
 function modeMcq(s){
   leave();
-  const qs = shuffle(mcqPool(s)).slice(0, 10);
+  const qs = shuffle(mcqPool(s)).slice(0, 10), base = qs.length;
   let i = 0, right = 0, answered = false;
   function draw(){
     const q = qs[i];
     app.innerHTML = `${topbar('אמריקאיות', (i + 1) + '/' + qs.length)}
       <div class="bar"><i style="width:${i / qs.length * 100}%"></i></div>
-      <div class="panel stack"><div class="row" style="align-items:flex-start"><p class="q grow" dir="auto">${esc(q.q)}</p>${q.say ? sayBtn(q.q, s.termLang) : ''}</div></div>
+      <div class="panel stack">${q.again ? '<span class="eyebrow">🔁 עוד הזדמנות לשאלה שטעית בה</span>' : ''}<div class="row" style="align-items:flex-start"><p class="q grow" dir="auto">${esc(q.q)}</p>${q.say ? sayBtn(q.q, s.termLang) : ''}</div></div>
       <div class="opts">${q.o.map((o, j) => `<button class="opt" data-c="${j % 6}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span><span dir="auto">${esc(o)}</span></button>`).join('')}</div>
       <div id="after"></div>`;
     answered = false;
@@ -1085,9 +1255,9 @@ function modeMcq(s){
     if (e.target.closest('[data-n]')) {
       i++;
       if (i >= qs.length) {
-        const pct = Math.round(right / qs.length * 100);
+        const pct = Math.round(right / base * 100);
         if (!s.best.mcq || pct > s.best.mcq) { s.best.mcq = pct; saveSoon(s); }
-        return resultView(s, 'אמריקאיות', pct + '%', `${right} נכונות מתוך ${qs.length}`, () => modeMcq(s));
+        return resultView(s, 'אמריקאיות', pct + '%', `${right} נכונות בניסיון הראשון מתוך ${base}`, () => modeMcq(s));
       }
       return draw();
     }
@@ -1095,7 +1265,8 @@ function modeMcq(s){
     answered = true;
     const q = qs[i], pick = +o.dataset.o;
     app.querySelectorAll('.opt').forEach((b, j) => { if (j === q.a) b.classList.add('right'); else if (j === pick) b.classList.add('wrong'); b.disabled = true; });
-    if (pick === q.a) right++;
+    if (pick === q.a && !q.again) right++;
+    if (pick !== q.a && !q.again) qs.push({ ...q, again: true }); // asked once more at the end of the round
     srsMark(s, q.id, pick === q.a); award(pick === q.a); saveSoon(s);
     document.getElementById('after').innerHTML = `<div class="stack">${q.x ? `<p class="explain" dir="auto">${esc(q.x)}</p>` : ''}${pick !== q.a ? `<button class="btn ghost" type="button" data-why="${pick}">🤔 למה זו התשובה?</button>` : ''}<button class="btn primary wide" data-n="1">${i + 1 < qs.length ? 'הבא' : 'לתוצאה'}</button></div>`;
   };
@@ -1201,13 +1372,12 @@ function modeWrite(s){
     ev.preventDefault();
     if (answered) return go();
     const inp = document.getElementById('ans'), c = items[i], v = inp.value; if (!v.trim()) return;
-    answered = true; const ok = norm(v) === norm(c.t);
-    if (ok) { right++; s.known[c.id] = true; saveSoon(s); }
-    srsMark(s, c.id, ok); award(ok);
-    inp.readOnly = true; inp.style.borderColor = ok ? 'var(--ok)' : 'var(--bad)';
+    answered = true; const res = checkAns(v, c.t), ok = res !== 'no';
+    if (ok) { right++; if (res === 'ok') s.known[c.id] = true; saveSoon(s); }
+    srsMark(s, c.id, res === 'ok'); award(ok);
+    inp.readOnly = true; inp.style.borderColor = res === 'ok' ? 'var(--ok)' : res === 'almost' ? 'var(--warn,#c98a00)' : 'var(--bad)';
     document.getElementById('chk').hidden = true;
-    document.getElementById('after').innerHTML = `<div class="stack">${ok ? '<p class="note good">נכון!</p>'
-      : `<p class="note bad">התשובה: <strong dir="auto">${esc(c.t)}</strong></p><button class="btn ghost" type="button" data-w="mine">צדקתי, זו רק שגיאת הקלדה</button>`}
+    document.getElementById('after').innerHTML = `<div class="stack">${answerNote(res, v, c.t)}
       <button class="btn primary wide" type="button" data-w="next">${i + 1 < items.length ? 'הבא' : 'לתוצאה'}</button></div>`;
   };
   app.onclick = e => {
@@ -1228,7 +1398,7 @@ function materialText(s){
 async function makeLesson(s){
   leave(); curView = 'lesson-gen'; tint(s.color);
   app.innerHTML = `${topbar('שיעור קצר')}<div class="panel working">
-    <svg class="pen" viewBox="0 0 64 64" aria-hidden="true"><path d="M6 22c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/><path d="M6 36c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/><path d="M6 50c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/></svg>
+    ${mascot('think')}
     <h2>כותב שיעור על החומר</h2><p class="muted">בערך חצי דקה.</p></div>${gameZone()}`;
   cleanup = startGames();
   const ctl = new AbortController();
@@ -1314,7 +1484,7 @@ const nikudNote = d => { if (d && d.nikud === false) setTimeout(() => toast('ה�
 async function makeStory(s, o){
   leave(); curView = 'story-gen'; tint(s.color);
   app.innerHTML = `${topbar('סיפור חדש')}<div class="panel working">
-    <svg class="pen" viewBox="0 0 64 64" aria-hidden="true"><path d="M6 22c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/><path d="M6 36c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/><path d="M6 50c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/></svg>
+    ${mascot('think')}
     <h2>כותב לך סיפור</h2><p class="muted">${esc((GENRES.find(g => g[0] === o.genre) || GENRES[0])[1])} · ${esc(o.level)}</p></div>${gameZone()}`;
   cleanup = startGames();
   const ctl = new AbortController();
@@ -1339,14 +1509,40 @@ function bi(t){
   if (!m || !m[1].trim() || isRtl(m[1])) return `<span dir="auto">${esc(t)}</span>`;
   return `<span dir="auto">${esc(m[1])}</span><span class="tr" dir="rtl">${esc(m[2])}</span>`;
 }
+// every word of a foreign-language passage can be tapped for its meaning
+function tapWords(p){
+  return esc(p).replace(/(\p{L}[\p{L}\p{M}'’]*)/gu, w => /[\u0590-\u05FF]/.test(w) ? w : `<span class="tw" role="button" tabindex="0">${w}</span>`);
+}
+async function wordSheet(s, r, el){
+  const word = el.textContent.replace(/[’']+$/, ''), key = word.toLowerCase(), para = el.closest('p'), lang = (r.lang || s.termLang || 'en').slice(0, 2);
+  app.querySelectorAll('.tw.on').forEach(x => x.classList.remove('on')); el.classList.add('on');
+  let sh = document.getElementById('wsheet');
+  if (!sh) { sh = document.createElement('div'); sh.id = 'wsheet'; sh.className = 'wsheet'; app.appendChild(sh); }
+  const draw = tr => { sh.innerHTML = `<strong dir="auto" class="ww">${esc(word)}</strong><p class="wtr" dir="auto">${tr ? esc(tr) : '<span class="muted">מתרגם…</span>'}</p>`; };
+  s.wordTr = s.wordTr || {};
+  const hit = s.wordTr[key];
+  draw(hit && hit.tr); sh.hidden = false;
+  sh.onclick = () => { sh.hidden = true; el.classList.remove('on'); };
+  if (hit) return;
+  try {
+    const sentence = (para ? para.textContent : '').replace(/([.!?])\s+/g, '$1\u0001').split('\u0001').find(x => x.includes(word)) || (para ? para.textContent.slice(0, 300) : '');
+    const d = await callApi({ mode: 'word', word, sentence, lang });
+    const res = d && d.result || {};
+    if (!res.tr) throw 0;
+    s.wordTr[key] = { tr: String(res.tr).slice(0, 80), base: String(res.base || '').slice(0, 60) }; saveSoon(s);
+    if (!sh.hidden && el.classList.contains('on')) draw(s.wordTr[key].tr);
+  } catch(e) { if (!sh.hidden) sh.querySelector('.wtr').textContent = 'לא הצלחתי לתרגם עכשיו'; }
+}
 function modeRead(s, r){
   leave(); curView = 'practice'; tint(s.color);
   let right = 0, done = 0;
+  const foreign = (r.lang || '').slice(0, 2) !== 'he' && !/[\u0590-\u05FF]/.test(r.text.slice(0, 200));
   app.innerHTML = `${topbar('קטע קריאה', r.q.length ? '0/' + r.q.length : '')}
     <article class="panel stack reading" lang="${esc(r.lang || '')}">
       <div class="row between" style="align-items:flex-start"><h2 class="grow" dir="auto">${esc(r.title)}</h2>${sayBtn(r.text, r.lang)}</div>
       ${r.instr ? `<p class="explain bi">${bi(r.instr)}</p>` : ''}
-      ${r.text.split(/\n+/).filter(Boolean).map(p => `<p dir="auto">${esc(p)}</p>`).join('')}
+      ${foreign ? '<p class="small muted">💡 לא מבין מילה? לחץ עליה</p>' : ''}
+      ${r.text.split(/\n+/).filter(Boolean).map((p, pi) => `<p dir="auto" data-pi="${pi}">${foreign ? tapWords(p) : esc(p)}</p>`).join('')}
     </article>
     ${r.q.length ? `<h3>שאלות הבנה</h3>` : ''}
     <div class="stack">${r.q.map((m, i) => `<div class="panel stack" data-qi="${i}"><p class="q bi">${bi(m.q)}</p>
@@ -1356,6 +1552,8 @@ function modeRead(s, r){
     <div class="row"><button class="btn colored grow" data-c="5" data-a="newstory">📖 סיפור חדש</button>${s.reading.length > 1 ? `<button class="btn grow" data-a="allst">כל הסיפורים (${s.reading.length})</button>` : ''}</div>`;
   app.onclick = e => {
     if (e.target.closest('[data-a="quit"]')) return viewSet(s);
+    const tw = e.target.closest('.tw'); if (tw) return wordSheet(s, r, tw);
+    const open = document.getElementById('wsheet'); if (open && !open.hidden && !e.target.closest('#wsheet')) { open.hidden = true; app.querySelectorAll('.tw.on').forEach(x => x.classList.remove('on')); }
     if (e.target.closest('[data-a="newstory"]')) return modeStoryNew(s);
     if (e.target.closest('[data-a="allst"]')) return modeReadPick(s);
     if (e.target.closest('[data-r2]')) return modeRead(s, r);
@@ -1626,12 +1824,21 @@ function vsResult(g, me, opp, left){
   };
 }
 
+async function openShortLink(code){
+  leave(); curView = 'import'; app.innerHTML = '<div class="panel working"><h2>פותח את הסט ששלחו לך…</h2></div>';
+  try {
+    const r = await fetch('/api/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'get', code }) });
+    const d = await r.json(); if (!r.ok || !d.data) throw 0;
+    return viewImport(await decodeSet(d.data));
+  } catch(e) { history.replaceState(null, '', location.pathname); viewHome(); toast('לא מצאתי את הסט מהקישור. בקש מהחבר לשלוח אותו שוב.'); }
+}
 /* ---------------- boot ---------------- */
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
 }
 (async function boot(){
   const h = location.hash;
+  if (/^#k=[a-z0-9]{6}$/.test(h)) return openShortLink(h.slice(3));
   if (/^#vs=\d{4}$/.test(h)) { history.replaceState(null, '', location.pathname); return vsHome({ code: h.slice(4) }); }
   if (h.startsWith('#s=')) {
     try { return viewImport(await decodeSet(h.slice(3))); }
@@ -1640,6 +1847,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
   viewHome();
 })();
 window.addEventListener('hashchange', async () => {
+  if (/^#k=[a-z0-9]{6}$/.test(location.hash)) return openShortLink(location.hash.slice(3));
   if (/^#vs=\d{4}$/.test(location.hash)) { const c = location.hash.slice(4); history.replaceState(null, '', location.pathname); return vsHome({ code: c }); }
   if (location.hash.startsWith('#s=')) { try { viewImport(await decodeSet(location.hash.slice(3))); } catch(e){ toast('הקישור לסט לא תקין'); } }
 });

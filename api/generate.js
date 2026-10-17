@@ -156,6 +156,12 @@ ${words ? 'If it fits naturally, use a few of these words the student is learnin
 Give it a short title in the passage language${lang === 'he' ? '' : ' with the Hebrew translation in parentheses'}.
 ${READING}
 Reply ONLY JSON: {"reading":[{"title":"","lang":"${lang}","instructions":"","text":"paragraphs split by \\n","questions":[{"q":"","options":["","","",""],"answer":0,"explain":""}]}]}` });
+  } else if (b.mode === 'word') {
+    const w = String(b.word || '').slice(0, 60), ctx = String(b.sentence || '').slice(0, 400);
+    if (!w.trim()) return res.status(400).json({ code: 'bad_request' });
+    parts.push({ text: `A Hebrew-speaking student reading a ${LANG_NAMES[String(b.lang || '').slice(0, 2)] || ''} text tapped the word "${w}" in this sentence: "${ctx}".
+Give its Hebrew translation as used in this sentence (1-4 words), and its dictionary form in the original language (e.g. infinitive or singular).
+Reply ONLY JSON: {"tr":"","base":""}` });
   } else if (b.mode === 'verify') { /* handled below */
   } else if (b.mode === 'lesson') parts.push({ text: LESSON + String(b.material || '').slice(0, 12000) });
   else if (b.mode === 'text') {
@@ -260,7 +266,7 @@ Reply ONLY JSON: {"questions":[{"id":"","answer":0}],"cards":[{"id":"","pick":"o
   }
 
   let result;
-  try { result = await ask(parts, grounded, story ? 6000 : 8192, b.mode === 'explain' ? 512 : 1024); }
+  try { result = await ask(parts, grounded, b.mode === 'word' ? 300 : story ? 6000 : 8192, b.mode === 'word' ? 0 : b.mode === 'explain' ? 512 : 1024); }
   catch (e) { return res.status(e.status || 503).json({ code: e.code || 'busy' }); }
 
   const grade = gradeOf(b.level), lang = String(b.lang || '').slice(0, 2), marks = {};
