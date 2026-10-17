@@ -1,8 +1,10 @@
 // One-on-one games between two phones. Rooms live for two hours in a free Upstash Redis database
 // connected in Vercel → Storage (it adds KV_REST_API_URL and KV_REST_API_TOKEN by itself).
 // Keys per room: r:CODE:s state (only the host writes it), r:CODE:q questions, r:CODE:h host, r:CODE:g guest.
-const DB = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-const TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+// the database variables may carry a prefix chosen in Vercel (e.g. STORAGE_KV_REST_API_URL), so look for any of them
+function envEnd(...ends){ for (const e of ends) { if (process.env[e]) return process.env[e]; const k = Object.keys(process.env).find(n => n.endsWith('_' + e)); if (k) return process.env[k]; } return ''; }
+const DB = envEnd('KV_REST_API_URL', 'UPSTASH_REDIS_REST_URL');
+const TOKEN = envEnd('KV_REST_API_TOKEN', 'UPSTASH_REDIS_REST_TOKEN');
 const TTL = '7200';
 
 async function redis(...cmds){
@@ -29,6 +31,12 @@ function player(name, now){ return { name: str(name, 24) || 'שחקן', idx: 0, 
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
+  // GET /api/room?check=1 shows whether the game database is connected
+  if (req.method === 'GET') {
+    if (!DB || !TOKEN) return res.status(200).json({ ok: false, why: 'אין מסד נתונים מחובר ב-Vercel (Storage ← Upstash for Redis)', vars: Object.keys(process.env).filter(k => /KV|REDIS|UPSTASH/.test(k)) });
+    try { const [pong] = await redis(['PING']); return res.status(200).json({ ok: pong === 'PONG', pong }); }
+    catch (e) { return res.status(200).json({ ok: false, why: String(e && e.message || e) }); }
+  }
   if (req.method !== 'POST') return res.status(405).json({ code: 'method' });
   if (!DB || !TOKEN) return res.status(503).json({ code: 'no_db' });
   let b = req.body; if (typeof b === 'string') { try { b = JSON.parse(b); } catch { b = {}; } } b = b || {};

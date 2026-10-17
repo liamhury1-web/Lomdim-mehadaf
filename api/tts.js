@@ -6,8 +6,10 @@ import { createHash } from 'crypto';
 const KEY = process.env.GEMINI_API_KEY;
 const MODELS = (process.env.TTS_MODEL || 'gemini-3.1-flash-tts-preview,gemini-3.8-flash-lite-tts,gemini-3.8-flash-tts,gemini-2.5-flash-preview-tts').split(',').map(m => m.trim()).filter(Boolean);
 const VOICE = process.env.TTS_VOICE || 'Kore';
-const DB = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-const DB_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+// the database variables may carry a prefix chosen in Vercel (e.g. STORAGE_KV_REST_API_URL), so look for any of them
+function envEnd(...ends){ for (const e of ends) { if (process.env[e]) return process.env[e]; const k = Object.keys(process.env).find(n => n.endsWith('_' + e)); if (k) return process.env[k]; } return ''; }
+const DB = envEnd('KV_REST_API_URL', 'UPSTASH_REDIS_REST_URL');
+const DB_TOKEN = envEnd('KV_REST_API_TOKEN', 'UPSTASH_REDIS_REST_TOKEN');
 const LANG = { he:'Hebrew', en:'English', ar:'Arabic', fr:'French', es:'Spanish', ru:'Russian', de:'German', it:'Italian', pt:'Portuguese', am:'Amharic', zh:'Mandarin Chinese', ja:'Japanese' };
 
 async function redis(cmd){

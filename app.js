@@ -171,7 +171,14 @@ let sets = [];
 // if loading ever fails, keep a copy of what was saved so nothing is lost when the app saves again
 sets = (() => { try { return (JSON.parse(lget(LKEY) || '[]') || []).map(fixSet); } catch(e){ const raw = lget(LKEY); if (raw) lset(LKEY + '_rescue', raw); return []; } })();
 sets.sort((a, b) => (b.updated || 0) - (a.updated || 0));
-function persist(){ if (!lset(LKEY, JSON.stringify(sets))) toast('אין מספיק מקום לשמור במכשיר'); }
+function persist(){
+  if (lset(LKEY, JSON.stringify(sets))) return true;
+  // the phone's storage is full: drop what can be made again, then try once more
+  sets.forEach(x => { delete x.nextStory; x.wordTr = {}; x.sentInfo = {}; x.reading.forEach(r => { delete r.gloss; }); if (x.reading.length > 5) x.reading = x.reading.slice(-5); });
+  if (lset(LKEY, JSON.stringify(sets))) { toast('הטלפון כמעט מלא: פיניתי מקום (סיפורים ישנים ותרגומים). כדאי למחוק סטים שלא צריך.'); return true; }
+  alert('אין מספיק מקום בטלפון כדי לשמור. שמור גיבוי במסך הבית ומחק סטים שלא צריך, אחרת השינויים האחרונים לא יישמרו.');
+  return false;
+}
 function saveSet(s){ s.updated = Date.now(); if (!sets.includes(s)) sets.unshift(s); persist(); }
 let saveT; function saveSoon(s){ clearTimeout(saveT); saveT = setTimeout(() => saveSet(s), 700); }
 function removeSet(s){ sets = sets.filter(x => x !== s); persist(); }
@@ -775,7 +782,7 @@ function viewCreate(errMsg){
   leave(); curView = 'create';
   const target = createTarget ? getSet(createTarget) : null;
   tint(target ? target.color : 0);
-  const maxPages = 20, tab = createTab;
+  const maxPages = 15, tab = createTab;
   const tabs = [['photo', '📷 צילום'], ['topic', '✏️ נושא'], ['list', '⌨️ רשימה שלי']];
   app.innerHTML = `
     <div class="topbar"><button class="iconbtn" data-a="back" aria-label="חזרה">${I.back}</button><div class="grow">${target ? 'הוספה ל: ' + esc(target.title) : 'תרגול חדש'}</div></div>
@@ -891,9 +898,21 @@ async function generateText(target, text, opts){
   const ctl = new AbortController();
   app.onclick = e => { if (e.target.closest('[data-a="stop"]')) ctl.abort(); };
   try {
-    const data = await callApi({ mode: 'text', text, subject: opts.subject || '', level: opts.level || '', lang: opts.lang || '', reading: !!opts.reading }, ctl.signal);
+    // a long text is sent in parts, two at a time, and everything goes into one set
+    const chunks = [];
+    if (text.length <= 11000) chunks.push(text);
+    else { let cur = ''; for (const para of text.split(/\n+/)) { if (cur && (cur + '\n' + para).length > 10000) { chunks.push(cur); cur = ''; } cur = cur ? cur + '\n' + para : para; while (cur.length > 10000) { chunks.push(cur.slice(0, 10000)); cur = cur.slice(10000); } } if (cur.trim()) chunks.push(cur); }
+    const st = app.querySelector('.working .muted'); if (chunks.length > 1 && st) st.textContent = `טקסט ארוך: עובד על ${chunks.length} חלקים`;
+    const results = new Array(chunks.length); let nxt = 0, done = 0;
+    const work = async () => { while (nxt < chunks.length) { const k = nxt++;
+      results[k] = await callApi({ mode: 'text', text: chunks[k], subject: opts.subject || '', level: opts.level || '', lang: opts.lang || '', reading: !!opts.reading && k === 0 }, ctl.signal);
+      done++; if (chunks.length > 1 && st) st.textContent = `טקסט ארוך: ${done} מתוך ${chunks.length} חלקים מוכנים`; } };
+    await Promise.all([work(), work()]);
+    const data = results[0];
     const part = normalize(data && data.result);
+    results.slice(1).forEach(d => { const p2 = normalize(d && d.result); ['cards', 'mcq', 'scr', 'topics', 'reading'].forEach(f => part[f].push(...p2[f])); });
     const raw = data && data.result;
+    if (raw && raw.blocked) throw { code: 'blocked' };
     if (raw && raw.unclear) throw { code: 'unclear', suggest: Array.isArray(raw.suggest) ? raw.suggest.map(x => String(x).slice(0, 60)).filter(Boolean).slice(0, 3) : [] };
     if (!(part.cards.length || part.mcq.length || part.reading.length)) throw { code: 'empty' };
     const s = target || fixSet({ title: '' });
@@ -906,6 +925,7 @@ async function generateText(target, text, opts){
   } catch(e) {
     if (e && e.name === 'AbortError') return viewCreate();
     if (e && e.code === 'need_code') return viewNeedCode(() => generateText(target, text, opts));
+    if (e && e.code === 'blocked') return viewCreate('הנושא הזה לא מתאים לתרגול באפליקציה. נסה נושא לימודי, למשל מדעים, שפות או היסטוריה.');
     if (e && e.code === 'unclear') {
       viewCreate('לא הבנתי על מה לתרגל. כתוב נושא לימודי, למשל אחד מאלה:');
       const msg = document.getElementById('msg');
@@ -954,7 +974,7 @@ async function generate(target, note){
         const data = await callApi({ mode: 'pages', images: chunks[i], note, from: starts[i], to: starts[i] + chunks[i].length - 1, total: pages.length, first: i === 0 }, ctl.signal);
         const part = normalize(data && data.result);
         if (part.cards.length || part.mcq.length || part.scr.length || part.lesson.length) { parts[i] = part; ok++; usedModel = (data && data.model) || usedModel; }
-        else lastErr = { code: 'empty' };
+        else lastErr = { code: data && data.result && data.result.blocked ? 'blocked' : data && data.result && data.result.notstudy ? 'notstudy' : 'empty' };
       } catch(e) {
         if (e && e.name === 'AbortError') { cancelled = true; stop = true; return; }
         lastErr = e;
@@ -973,7 +993,7 @@ async function generate(target, note){
     if (cancelled) toast('נעצר. מה שכבר נוצר נשמר');
     else if (ok < chunks.length) toast('חלק מהדפים לא נקראו, השאר נשמרו');
   } else {
-    viewCreate(cancelled ? '' : (lastErr && lastErr.code === 'empty' ? 'לא מצאתי בדפים חומר לתרגול. נסה צילום חד יותר, מקרוב ובאור טוב.' : errText(lastErr)));
+    viewCreate(cancelled ? '' : lastErr && lastErr.code === 'notstudy' ? 'זה לא נראה כמו דף לימוד. צלם דף עבודה, סיכום או רשימת מילים, מקרוב ובאור טוב.' : lastErr && lastErr.code === 'blocked' ? 'התוכן בתמונה לא מתאים לתרגול באפליקציה.' : (lastErr && lastErr.code === 'empty' ? 'לא מצאתי בדפים חומר לתרגול. נסה צילום חד יותר, מקרוב ובאור טוב.' : errText(lastErr)));
   }
 }
 
@@ -1927,7 +1947,7 @@ async function roomApi(payload){
 }
 const VS_ERR = {
   no_db: 'המשחק מול חבר עוד לא הופעל בשרת (חסר מסד נתונים ב-Vercel).',
-  not_found: 'לא מצאתי משחק עם הקוד הזה. בדוק את הקוד, או בקש מהחבר ליצור משחק חדש.',
+  not_found: 'המשחק עם הקוד הזה כבר נגמר או שהקוד לא נכון. בקש מהחבר קוד חדש, או צור משחק משלך למטה.',
   full: 'במשחק הזה כבר יש שני שחקנים.',
   few_questions: 'צריך לפחות 4 שאלות בסט כדי לשחק.'
 };
@@ -1945,7 +1965,7 @@ function vsPoll(g, onData, ms){
     try { const d = await roomApi({ action: 'poll', code: g.code }); fails = 0; g.offset = d.now - Date.now(); if (!stop) onData(d); }
     catch(e) {
       if (stop) return;
-      if (e.code === 'not_found') { stop = true; toast('המשחק כבר נסגר'); return viewHome(); }
+      if (e.code === 'not_found') { stop = true; vsHome(g.set ? { set: g.set } : {}); return toast('המשחק הזה כבר נגמר. אפשר ליצור משחק חדש כאן.'); }
       if (++fails === 4) toast('החיבור חלש, ממשיך לנסות…');
     }
     if (!stop) t = setTimeout(tick, ms);
@@ -2138,7 +2158,7 @@ async function openShortLink(code){
     const r = await fetch('/api/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'get', code }) });
     const d = await r.json(); if (!r.ok || !d.data) throw 0;
     return viewImport(await decodeSet(d.data));
-  } catch(e) { history.replaceState(null, '', location.pathname); viewHome(); toast('לא מצאתי את הסט מהקישור. בקש מהחבר לשלוח אותו שוב.'); }
+  } catch(e) { history.replaceState(null, '', location.pathname); viewHome(); toast('הקישור הזה כבר לא פעיל. בקש מהחבר לשלוח את הסט שוב.'); }
 }
 /* ---------------- boot ---------------- */
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
