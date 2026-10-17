@@ -267,3 +267,64 @@ input.titlein:focus{outline:none;border-bottom-color:var(--k)}
 .vsfinal div{display:flex;flex-direction:column;align-items:center;gap:2px;background:var(--paper);border-radius:12px;padding:10px}
 .vsfinal b{font-family:var(--f-display);font-size:32px}
 @media (prefers-reduced-motion:reduce){.tbar i{animation:tshrink var(--d,20s) linear forwards!important}}
+/* simpler layout: big actions, tabs, folding sections */
+.btn.big{min-height:60px;font-size:18px;font-weight:800;border-radius:14px;flex-wrap:wrap;row-gap:0}
+.btn.big small{flex-basis:100%;font-size:13px;font-weight:600;opacity:.85;line-height:1.2}
+.btn.alt{background:var(--c5);border-color:var(--c5)}
+.newrow{display:flex;gap:10px}
+.newrow .btn{flex-direction:column;gap:4px;min-height:84px}
+.newrow .btn svg{width:26px;height:26px}
+.start{gap:10px}
+.choice{display:flex;align-items:center;gap:14px;width:100%;text-align:start;font:inherit;color:var(--fg);cursor:pointer;padding:14px;border-radius:14px;
+  border:1.5px solid color-mix(in srgb,var(--k) 35%,var(--line));background:color-mix(in srgb,var(--k) 9%,var(--card))}
+.choice:active{transform:scale(.99)}
+.choice .ci{width:48px;height:48px;border-radius:14px;background:var(--k);color:var(--card);display:grid;place-items:center;flex:none}
+.choice .ci svg{width:26px;height:26px}
+.choice strong{display:block;font-size:18px;color:var(--k)}
+.choice .grow span{display:block;font-size:14px;color:var(--muted)}
+.center{text-align:center}
+.seg{display:flex;gap:4px;padding:4px;border-radius:14px;background:var(--card);border:1.5px solid var(--line)}
+.seg button{flex:1;min-height:44px;border:0;border-radius:10px;background:transparent;color:var(--fg);font:inherit;font-weight:700;font-size:15px;cursor:pointer}
+.seg button[aria-selected="true"]{background:var(--k,var(--ink));color:var(--card)}
+details.more{background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:0 14px}
+details.more[open]{padding-bottom:14px;display:flex;flex-direction:column;gap:10px}
+details.more summary{cursor:pointer;min-height:50px;display:flex;align-items:center;font-weight:700;list-style:none}
+details.more summary::-webkit-details-marker{display:none}
+details.more summary::after{content:"▾";margin-inline-start:auto;color:var(--muted);transition:transform .15s}
+details.more[open] summary::after{transform:rotate(180deg)}
+details.more.inner{border-style:dashed;box-shadow:none}
+.modes.small .mode{min-height:0;padding:12px;flex-direction:row;align-items:center;gap:8px}
+.modes.small .mode svg{margin:0;width:20px;height:20px}
+.modes.small .mode strong{font-size:15px}
+.settitle{color:var(--k);font-size:30px}
+.row.end{justify-content:flex-end}
+button.pill{font:inherit;font-weight:800;font-size:14px;color:var(--fg);cursor:pointer}
+.pages[hidden]{display:none}
+/* polish */
+button,a,summary{-webkit-tap-highlight-color:transparent}
+.wrap{padding-bottom:calc(64px + env(safe-area-inset-bottom,0px))}
+.hero.compact{flex-direction:row;align-items:center;justify-content:space-between;padding-top:0}
+.hero.compact h1{font-size:28px}
+.hero.compact .rainbow{order:2}
+/* set cards look like index cards: a colored margin and faint ruled lines */
+.setcard{border-inline-start:6px solid var(--k);border-radius:12px;padding:14px 16px 12px;
+  background:repeating-linear-gradient(to bottom,transparent 0 27px,color-mix(in srgb,var(--k) 10%,transparent) 27px 28px),color-mix(in srgb,var(--k) 6%,var(--card))}
+.setcard h3{font-size:21px}
+/* practice tiles: the icon sits in a solid marker-colored square */
+.mode{min-height:108px;gap:4px;padding:14px;border-radius:16px;transition:transform .12s}
+.mode:active{transform:scale(.97)}
+.mode svg,.mode .emo{width:40px;height:40px;padding:9px;border-radius:12px;background:var(--k);color:var(--card);margin-bottom:6px;box-sizing:border-box}
+.mode strong{font-size:17px;line-height:1.2}
+.modes.small .mode svg{width:30px;height:30px;padding:6px;border-radius:9px;margin:0}
+/* know / don't know */
+.btn.yes{background:color-mix(in srgb,var(--ok) 14%,var(--card));border-color:color-mix(in srgb,var(--ok) 50%,var(--line));color:var(--ok)}
+.btn.no{background:color-mix(in srgb,var(--bad) 10%,var(--card));border-color:color-mix(in srgb,var(--bad) 45%,var(--line));color:var(--bad)}
+/* toast: readable, above the bottom edge, a short rise when it appears */
+.toast{padding:12px 18px;border-radius:14px;font-size:15px;line-height:1.4;width:max-content;max-width:min(92vw,520px);box-shadow:0 8px 24px rgba(16,24,48,.25);animation:toastin .22s ease-out}
+@keyframes toastin{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+.vsin::placeholder{letter-spacing:normal;font-size:16px}
+.settitle{font-size:32px;line-height:1.15}
+h3{color:var(--fg)}
+.opt{min-height:56px}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .hero h1 span{color:#1b2a6b}}
+:root[data-theme="dark"] .hero h1 span{color:#1b2a6b}

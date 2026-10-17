@@ -39,9 +39,8 @@ Reply ONLY JSON:
 "mcq":[{"q":"","options":["","","",""],"answer":0,"explain":""}],
 "scramble":[{"word":"","hint":""}],
 "topics":[{"name":"Hebrew topic","query":"YouTube search"}],
-"lesson":[{"title":"Hebrew heading","body":"Hebrew explanation with example, paragraphs split by \\n"}],
 "reading":[{"title":"","lang":"BCP-47 of the text","instructions":"","text":"passage, paragraphs split by \\n","questions":[{"q":"","options":["","","",""],"answer":0,"explain":""}]}]}
-cards 6-40, mcq 6-20 (vary answer position), scramble only single words 3-12 letters, topics 2-5, lesson 3-6 sections. reading: [] unless asked for a reading passage or the material is itself a reading passage.
+cards 6-25, mcq 6-12, scramble up to 10 single words of 3-12 letters, topics 2-3. Keep every text short. (The lesson is made separately, do not write one.) reading: [] unless asked for a reading passage or the material is itself a reading passage.
 Never write Hebrew nikud yourself (it is added afterwards by a professional vocalizer). Arabic study words and sentences: full tashkeel up to grade 10.
 ${READING}alphabet true only if the material teaches letters.`;
 
@@ -157,6 +156,7 @@ ${words ? 'If it fits naturally, use a few of these words the student is learnin
 Give it a short title in the passage language${lang === 'he' ? '' : ' with the Hebrew translation in parentheses'}.
 ${READING}
 Reply ONLY JSON: {"reading":[{"title":"","lang":"${lang}","instructions":"","text":"paragraphs split by \\n","questions":[{"q":"","options":["","","",""],"answer":0,"explain":""}]}]}` });
+  } else if (b.mode === 'verify') { /* handled below */
   } else if (b.mode === 'lesson') parts.push({ text: LESSON + String(b.material || '').slice(0, 12000) });
   else if (b.mode === 'text') {
     const t = String(b.text || '').trim().slice(0, 12000);
@@ -175,19 +175,24 @@ Reply ONLY JSON: {"reading":[{"title":"","lang":"${lang}","instructions":"","tex
 
   // Topic and story requests may use Google Search, so texts and facts follow real sources.
   // JSON mode and tools don't mix on every model, so a searched request asks for plain text and falls back to JSON mode.
-  const story = b.mode === 'story', grounded = story || b.mode === 'text';
+  // Google Search only where texts must follow real sources (stories); it makes a request much slower
+  const story = b.mode === 'story', grounded = story || (b.mode === 'text' && !!b.reading);
   const t0 = Date.now();
-  async function ask(parts, search, maxTokens){
+  // A small thinking budget keeps answers fast but still checked; models that reject the setting get the request without it.
+  let thinkOk = true;
+  let usedModel = '';
+  async function ask(parts, search, maxTokens, think = 1024, order = MODELS){
     const make = tools => JSON.stringify({ contents: [{ role: 'user', parts }], ...(tools ? { tools: [{ google_search: {} }] } : {}),
-      generationConfig: { maxOutputTokens: maxTokens, ...(tools ? {} : { responseMimeType: 'application/json' }) } });
+      generationConfig: { maxOutputTokens: maxTokens, ...(tools ? {} : { responseMimeType: 'application/json' }), ...(thinkOk ? { thinkingConfig: { thinkingBudget: think } } : {}) } });
     let last = 503;
-    for (let n = 0; n < 2; n++) for (const M of MODELS) for (const tools of search ? [true, false] : [false]) {
+    for (let n = 0; n < 2; n++) for (const M of order) for (const tools of search ? [true, false] : [false]) {
       if (Date.now() - t0 > 95000) break;
       try {
-        const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + M.trim() + ':generateContent', {
+        const send = () => fetch('https://generativelanguage.googleapis.com/v1beta/models/' + M.trim() + ':generateContent', {
           method: 'POST', headers: { 'x-goog-api-key': k.trim(), 'content-type': 'application/json' }, body: make(tools)
         });
-        const d = await r.json().catch(() => null);
+        let r = await send(), d = await r.json().catch(() => null);
+        if (r.status === 400 && thinkOk && /thinking/i.test(d?.error?.message || '')) { thinkOk = false; r = await send(); d = await r.json().catch(() => null); }
         if (!r.ok) {
           console.error(M, tools ? 'search' : '', r.status, d?.error?.message); last = r.status;
           if (tools) continue;
@@ -196,14 +201,66 @@ Reply ONLY JSON: {"reading":[{"title":"","lang":"${lang}","instructions":"","tex
         }
         const t = (d?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
         const a = t.indexOf('{'), z = t.lastIndexOf('}');
-        try { return JSON.parse(t.slice(a, z + 1)); } catch { console.error(M, 'bad json'); continue; }
+        try { const j = JSON.parse(t.slice(a, z + 1)); usedModel = M.trim(); return j; } catch { console.error(M, 'bad json'); continue; }
       } catch (e) { if (e && e.code) throw e; console.error(M, e); }
     }
     throw last === 429 ? { status: 429, code: 'rate' } : { status: 503, code: 'busy' };
   }
 
+  if (b.mode === 'verify') return verify();
+
+  // A second model, not the one that wrote the set, solves every question blind. Where the two disagree,
+  // a third call sees both answers and decides; a question nobody can settle is removed.
+  async function verify(){
+    const S = (v, n) => String(v == null ? '' : v).slice(0, n);
+    const qs = (Array.isArray(b.qs) ? b.qs : []).slice(0, 45).map(q => ({ id: S(q.id, 40), q: S(q.q, 700), o: (Array.isArray(q.o) ? q.o : []).slice(0, 6).map(x => S(x, 250)), a: Number(q.a), ctx: S(q.ctx, 40) }))
+      .filter(q => q.id && q.q && q.o.length >= 2 && Number.isInteger(q.a));
+    const cards = (Array.isArray(b.cards) ? b.cards : []).slice(0, 45).map(c => ({ id: S(c.id, 40), t: S(c.t, 200), d: S(c.d, 300) })).filter(c => c.id && c.t && c.d);
+    const texts = (Array.isArray(b.texts) ? b.texts : []).slice(0, 4).map(r => ({ id: S(r.id, 40), text: S(r.text, 5000) }));
+    if (!qs.length && !cards.length) return res.status(200).json({ changes: { q: [], cards: [] }, checked: 0 });
+    const avoid = S(b.model, 60);
+    // the checker is a different model than the writer, the stronger (non-lite) ones first
+    const lite = m => /lite/.test(m) ? 1 : 0;
+    const order = [...MODELS.filter(m => m.trim() !== avoid).sort((x, y) => lite(x) - lite(y)), ...MODELS.filter(m => m.trim() === avoid)];
+    const passages = texts.length ? 'Reading passages (answer their questions only from the passage):\n' + texts.map(r => `[${r.id}]\n${r.text}`).join('\n\n') + '\n\n' : '';
+    try {
+      const one = await ask([{ text: `You are checking study material that another AI wrote for a Hebrew-speaking student${b.level ? ' (' + S(b.level, 30) + ')' : ''}. Work independently and carefully.
+1) Solve every multiple-choice question yourself (math step by step) and give the index (0-based) of the correct option. "clear": false if the question is ambiguous, has no correct option, or has more than one correct option.
+2) Check every flashcard: is the definition or translation correct for the term? List only wrong ones, with the correct definition in the same language as the old one.
+${passages}Questions:
+${qs.map(q => `[${q.id}]${q.ctx ? ' (passage ' + q.ctx + ')' : ''} ${q.q}\n${q.o.map((o, i) => `  ${i}) ${o}`).join('\n')}`).join('\n')}
+Flashcards:
+${cards.map(c => `[${c.id}] ${c.t} = ${c.d}`).join('\n')}
+Reply ONLY JSON: {"answers":[{"id":"","answer":0,"clear":true}],"badCards":[{"id":"","def":""}]}` }], false, 6000, 2048, order);
+      const mine = new Map((Array.isArray(one.answers) ? one.answers : []).map(x => [S(x && x.id, 40), x]));
+      const disputed = qs.filter(q => { const x = mine.get(q.id); return x && (Number(x.answer) !== q.a || x.clear === false); });
+      const badCards = (Array.isArray(one.badCards) ? one.badCards : []).map(x => ({ id: S(x && x.id, 40), def: S(x && x.def, 300) })).filter(x => x.def && cards.some(c => c.id === x.id));
+      const changes = { q: [], cards: [] };
+      if (disputed.length || badCards.length) {
+        const two = await ask([{ text: `Two AI checkers disagree about this study material for a Hebrew-speaking student. Decide carefully what is correct (math step by step).
+For each question: give the index (0-based) of the one correct option, or -1 if the question is ambiguous, has no correct option or more than one.
+For each flashcard: "old" if the old definition is correct, "new" if the proposed one is correct.
+${passages}Questions:
+${disputed.map(q => { const x = mine.get(q.id); return `[${q.id}]${q.ctx ? ' (passage ' + q.ctx + ')' : ''} ${q.q}\n${q.o.map((o, i) => `  ${i}) ${o}`).join('\n')}\n  checker A says ${q.a}; checker B says ${x.clear === false ? 'unclear' : Number(x.answer)}`; }).join('\n')}
+Flashcards:
+${badCards.map(x => { const c = cards.find(c => c.id === x.id); return `[${x.id}] ${c.t} | old: ${c.d} | proposed: ${x.def}`; }).join('\n')}
+Reply ONLY JSON: {"questions":[{"id":"","answer":0}],"cards":[{"id":"","pick":"old"}]}` }], false, 4000, 2048);
+        const verdict = new Map((Array.isArray(two.questions) ? two.questions : []).map(x => [S(x && x.id, 40), Number(x && x.answer)]));
+        disputed.forEach(q => {
+          const v = verdict.get(q.id);
+          if (v === q.a) return;
+          if (Number.isInteger(v) && v >= 0 && v < q.o.length) changes.q.push({ id: q.id, a: v });
+          else changes.q.push({ id: q.id, drop: true });
+        });
+        const cv = new Map((Array.isArray(two.cards) ? two.cards : []).map(x => [S(x && x.id, 40), S(x && x.pick, 5)]));
+        badCards.forEach(x => { if (cv.get(x.id) === 'new') changes.cards.push({ id: x.id, d: x.def }); });
+      }
+      return res.status(200).json({ changes, checked: qs.length + cards.length });
+    } catch (e) { return res.status(e.status || 503).json({ code: e.code || 'busy' }); }
+  }
+
   let result;
-  try { result = await ask(parts, grounded, story ? 8000 : 16000); }
+  try { result = await ask(parts, grounded, story ? 6000 : 8192, b.mode === 'explain' ? 512 : 1024); }
   catch (e) { return res.status(e.status || 503).json({ code: e.code || 'busy' }); }
 
   const grade = gradeOf(b.level), lang = String(b.lang || '').slice(0, 2), marks = {};
@@ -211,7 +268,7 @@ Reply ONLY JSON: {"reading":[{"title":"","lang":"${lang}","instructions":"","tex
   if ((story || b.mode === 'text') && MARKS[lang] && grade <= 10 && Date.now() - t0 < 70000) {
     const part = story ? { reading: result.reading } : { reading: result.reading || [], cards: result.cards || [] };
     try {
-      const fixed = await ask([{ text: `You are a meticulous proofreader of learner texts. Check every word of every string below and make the ${MARKS[lang]}. Fix any mark that is wrong or missing. Do not change any word, spelling, punctuation, Hebrew text or the JSON structure. Reply ONLY the corrected JSON.\n\n` + JSON.stringify(part) }], false, 8000);
+      const fixed = await ask([{ text: `You are a meticulous proofreader of learner texts. Check every word of every string below and make the ${MARKS[lang]}. Fix any mark that is wrong or missing. Do not change any word, spelling, punctuation, Hebrew text or the JSON structure. Reply ONLY the corrected JSON.\n\n` + JSON.stringify(part) }], false, 6000, 512);
       // take a corrected string only when its words are the same as before, so the check can add marks but not rewrite text
       const base = t => t.normalize('NFD').replace(/\([^()]*\)/g, '').replace(/[\u0300-\u036f\u064B-\u065F\u0670]/g, '').replace(/[\s\p{P}]/gu, '');
       const before = strings(part, () => true), after = strings(fixed, () => true);
@@ -220,9 +277,9 @@ Reply ONLY JSON: {"reading":[{"title":"","lang":"${lang}","instructions":"","tex
   }
   // 2) Hebrew nikud for grades 1-3 from Dicta; if it fails, the text stays without nikud rather than with wrong nikud
   const pointed = strings(result, v => HEB.test(v) && /[\u05B0-\u05BC\u05C1\u05C2\u05C7]/.test(v)).length > 2;
-  if (((story || b.mode === 'text') && grade >= 1 && grade <= 3) || (!b.mode && pointed)) {
+  if (((story || b.mode === 'text') && grade >= 1 && grade <= 3) || ((b.mode === 'pages' || !b.mode) && pointed)) {
     try { await hebrewNikud(result); marks.nikud = true; }
     catch (e) { console.error('nikud', e); strings(result, v => HEB.test(v)).forEach(([o, key]) => { o[key] = stripNikud(o[key]); }); marks.nikud = false; }
   } else strings(result, v => HEB.test(v)).forEach(([o, key]) => { o[key] = stripNikud(o[key]); });
-  return res.status(200).json({ result, ...marks });
+  return res.status(200).json({ result, model: usedModel, ...marks });
 }

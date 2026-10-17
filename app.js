@@ -73,7 +73,7 @@ function fixSet(s){
     termLang: s.termLang || '', defLang: s.defLang || '', alphabet: !!s.alphabet, example: !!s.example,
     cards: arr(s.cards), mcq: arr(s.mcq), scr: arr(s.scr), topics: arr(s.topics), lesson: arr(s.lesson), reading: arr(s.reading),
     known: s.known && typeof s.known === 'object' ? s.known : {}, best: s.best && typeof s.best === 'object' ? s.best : {},
-    srs: s.srs && typeof s.srs === 'object' ? s.srs : {}, folder: typeof s.folder === 'string' ? s.folder.slice(0, 40) : '', level: typeof s.level === 'string' ? s.level.slice(0, 30) : '', learn: typeof s.learn === 'string' ? s.learn.slice(0, 5) : '', challenge: s.challenge && typeof s.challenge === 'object' ? s.challenge : null };
+    srs: s.srs && typeof s.srs === 'object' ? s.srs : {}, folder: typeof s.folder === 'string' ? s.folder.slice(0, 40) : '', vok: s.vok && typeof s.vok === 'object' ? s.vok : {}, level: typeof s.level === 'string' ? s.level.slice(0, 30) : '', learn: typeof s.learn === 'string' ? s.learn.slice(0, 5) : '', challenge: s.challenge && typeof s.challenge === 'object' ? s.challenge : null };
 }
 
 /* An option like "five (חמש)" gives the answer away: drop a bracketed part written in another script than the option itself. */
@@ -416,7 +416,7 @@ function runQuiz(title, qs, back, opts){
     else if (q.type === 'flash') body = `<div class="panel stack qflash"><span class="eyebrow">אתה יודע מה זה?</span><p class="q" dir="auto">${esc(q.c.t)}</p>${sayBtn(q.c.t, s.termLang)}
       <div id="rev" hidden><p class="explain" dir="auto">${esc(q.c.d)}</p></div>
       <button class="btn wide" type="button" data-show="1">הצג תשובה</button></div>
-      <div class="row" id="fl" hidden><button class="btn grow" data-f="no" style="color:var(--bad)">לא ידעתי</button><button class="btn grow" data-f="yes" style="color:var(--ok)">ידעתי ✓</button></div>`;
+      <div class="row" id="fl" hidden><button class="btn grow big no" data-f="no">לא ידעתי</button><button class="btn grow big yes" data-f="yes">ידעתי ✓</button></div>`;
     else body = `<div class="panel stack">${q.type === 'dict'
         ? `<span class="eyebrow">הקשב וכתוב</span><button class="btn colored wide dictbtn" type="button" data-say="${esc(q.c.t)}" data-lang="${esc(s.termLang || '')}">${I.say} השמע שוב</button><p class="small muted" dir="auto">רמז: ${esc(q.c.d)}</p>`
         : `<span class="eyebrow">כתוב את המילה שמתאימה</span><p class="q" dir="auto">${esc(q.c.d)}</p>`}</div>
@@ -517,60 +517,67 @@ function setStats(s){
 const knownCount = s => s.cards.filter(c => s.known[c.id]).length;
 
 let homeFolder = '';
+let createTab = 'photo';
+function startCreate(tab){ createTarget = null; pages = []; createTab = tab || 'photo'; viewCreate(); }
 function viewHome(){
   leave(); curView = 'home'; tint(null);
   const due = totalDue(), folders = [...new Set(sets.map(s => s.folder).filter(Boolean))].sort();
   if (homeFolder && !folders.includes(homeFolder)) homeFolder = '';
   const shown = homeFolder ? sets.filter(s => s.folder === homeFolder) : sets;
+  const st = stats(), sk = streakOf(st), nb = BADGES.filter(b => (st.badges || []).includes(b[0])).length;
   app.innerHTML = `
-    <header class="hero">
+    <header class="hero${sets.length ? ' compact' : ''}">
       <div class="rainbow" aria-hidden="true">${[0,1,2,3,4,5].map(c => `<i data-c="${c}"></i>`).join('')}</div>
       <h1><span>לומדים</span> מהדף</h1>
-      <p class="muted">מצלמים דף עבודה או כותבים נושא שרוצים ללמוד, ומקבלים כרטיסיות, שאלות אמריקאיות, התאמת זוגות, סידור אותיות, שיעור קצר וסרטונים.</p>
+      ${sets.length ? '' : '<p class="muted">מצלמים דף או כותבים נושא, והאפליקציה בונה לך תרגול.</p>'}
     </header>
     ${installHtml()}
-    ${statsBar()}
-    ${due ? `<button class="btn colored wide" data-c="3" data-a="daily">🔁 חזרה יומית · ${due} פריטים מחכים</button>` : ''}
-    <button class="btn primary wide" data-a="new">${I.cam} סט חדש מצילום</button>
-    <button class="btn colored wide" data-c="4" data-a="vs">⚔️ אחד על אחד מול חבר</button>
     ${sets.length ? `
+      ${st.answers ? `<div class="statsbar"><span class="pill">🔥 ${sk} ${sk === 1 ? 'יום' : 'ימים'} ברצף</span><span class="pill">⭐ ${(st.points || 0).toLocaleString('he-IL')}</span>${nb ? `<button type="button" class="pill" data-a="badges">🏅 ${nb} תגים</button>` : ''}</div>` : ''}
+      ${due ? `<button class="btn colored wide big" data-c="3" data-a="daily">🔁 חזרה יומית <small>${due} פריטים מחכים לך</small></button>` : ''}
+      <div class="newrow">
+        <button class="btn primary grow big" data-a="photo">${I.cam} צלם דף</button>
+        <button class="btn primary grow big alt" data-a="topic">${I.pen} כתוב נושא</button>
+      </div>
       <div class="row between"><h2>הסטים שלי</h2><span class="muted small count">${shown.length}</span></div>
-      ${folders.length ? `<div class="chips">${['', ...folders].map(f => `<button type="button" class="chip" data-folder="${esc(f)}" aria-pressed="${homeFolder === f}">${esc(f || 'הכול')}</button>`).join('')}</div>` : ''}
+      ${folders.length > 1 ? `<div class="chips">${['', ...folders].map(f => `<button type="button" class="chip" data-folder="${esc(f)}" aria-pressed="${homeFolder === f}">${esc(f || 'הכול')}</button>`).join('')}</div>` : ''}
       <div class="sets">${shown.map(s => {
-        const k = knownCount(s), n = s.cards.length;
+        const k = knownCount(s), n = s.cards.length, d = dueIds(s).length;
         return `<button class="setcard" data-c="${s.color}" data-open="${esc(s.id)}">
-          <div class="row between" style="width:100%"><h3 dir="auto">${esc(s.title)}</h3>${s.example ? '<span class="tag">דוגמה</span>' : ''}</div>
-          <span class="muted small">${esc(setStats(s))}${s.folder ? ' · 📁 ' + esc(s.folder) : ''}${dueIds(s).length ? ' · 🔁 ' + dueIds(s).length + ' לחזרה' : ''}</span>
+          <div class="row between" style="width:100%"><h3 dir="auto">${esc(s.title)}</h3>${d ? `<span class="tag">🔁 ${d}</span>` : s.example ? '<span class="tag">דוגמה</span>' : ''}</div>
+          <span class="muted small">${esc(setStats(s))}</span>
           ${n ? `<div class="row" style="width:100%"><div class="meter grow"><i style="width:${Math.round(k / n * 100)}%"></i></div><span class="small count">${k}/${n}</span></div>` : ''}
-        </button>`; }).join('')}</div>`
+        </button>`; }).join('')}</div>
+      <button class="btn wide" data-a="vs">⚔️ שחק מול חבר</button>`
     : `
-      <ol class="steps">
-        <li data-c="0">מצלמים דף אחד או כמה דפים</li>
-        <li data-c="1">האפליקציה קוראת ובונה תרגול</li>
-        <li data-c="3">מתרגלים עד שיודעים הכול</li>
-      </ol>
-      <div class="panel stack">
-        <h3>עוד אין סטים</h3>
-        <p class="muted small">לחץ על "סט חדש מצילום" כדי להתחיל, או פתח סט לדוגמה של מילים באנגלית כדי לראות איך זה עובד.</p>
-        <button class="btn" data-a="example">פתח סט לדוגמה</button>
-      </div>`}
-    <div class="panel stack backup">
-      <strong>גיבוי</strong>
-      <p class="muted small">הסטים נשמרים רק בטלפון הזה. שמור גיבוי לקובץ, ותוכל לשחזר אותו בטלפון אחר או אחרי מחיקה.</p>
+      <section class="panel stack start">
+        <h2>איך מתחילים?</h2>
+        <button class="choice" data-c="0" data-a="photo"><span class="ci">${I.cam}</span><span class="grow"><strong>צלם דף לימוד</strong><span>דף עבודה, סיכום או רשימת מילים</span></span></button>
+        <button class="choice" data-c="1" data-a="topic"><span class="ci">${I.pen}</span><span class="grow"><strong>כתוב מה ללמוד</strong><span>למשל: מילים באנגלית לכיתה ה׳</span></span></button>
+        <button class="choice" data-c="2" data-a="example"><span class="ci">${I.play}</span><span class="grow"><strong>נסה סט לדוגמה</strong><span>מילים באנגלית, כדי לראות איך זה עובד</span></span></button>
+      </section>
+      <p class="muted small center">האפליקציה בונה כרטיסיות, שאלות אמריקאיות, משחקים וקטעי קריאה, ושומרת הכול בטלפון.</p>`}
+    <details class="more">
+      <summary>⚙️ גיבוי והעברה לטלפון אחר</summary>
+      <p class="muted small">הסטים נשמרים רק בטלפון הזה. שמור גיבוי לקובץ, ותוכל לשחזר אותו בטלפון אחר.</p>
       <div class="row"><button class="btn grow" type="button" data-a="backup">שמור גיבוי</button><button class="btn grow" type="button" data-a="restore">שחזר מגיבוי</button></div>
-    </div>`;
+    </details>`;
   app.onclick = async e => {
     const o = e.target.closest('[data-open]'); if (o) return viewSet(getSet(o.dataset.open));
     const fo = e.target.closest('[data-folder]'); if (fo) { homeFolder = fo.dataset.folder; return viewHome(); }
     const a = e.target.closest('[data-a]'); if (!a) return;
-    if (a.dataset.a === 'new') { createTarget = null; pages = []; return viewCreate(); }
-    if (a.dataset.a === 'example') { const s = exampleSet(); saveSet(s); return viewSet(s); }
-    if (a.dataset.a === 'install' && installEvt) { installEvt.prompt(); try { await installEvt.userChoice; } catch(e){} installEvt = null; return viewHome(); }
-    if (a.dataset.a === 'hideinstall') { lset('lomdim_install_hide', '1'); return viewHome(); }
-    if (a.dataset.a === 'daily') return dailyReview();
-    if (a.dataset.a === 'vs') return vsHome();
-    if (a.dataset.a === 'backup') return backupNow();
-    if (a.dataset.a === 'restore') { onPickedJson = f => restoreFrom(f); return document.getElementById('pickJson').click(); }
+    switch (a.dataset.a) {
+      case 'photo': return startCreate('photo');
+      case 'topic': return startCreate('topic');
+      case 'example': { const s = exampleSet(); saveSet(s); return viewSet(s); }
+      case 'install': if (installEvt) { installEvt.prompt(); try { await installEvt.userChoice; } catch(err){} installEvt = null; } return viewHome();
+      case 'hideinstall': lset('lomdim_install_hide', '1'); return viewHome();
+      case 'daily': return dailyReview();
+      case 'vs': return vsHome();
+      case 'badges': return toast(BADGES.filter(b => (st.badges || []).includes(b[0])).map(b => b[1] + ' ' + b[2]).join(' · '));
+      case 'backup': return backupNow();
+      case 'restore': onPickedJson = f => restoreFrom(f); return document.getElementById('pickJson').click();
+    }
   };
 }
 
@@ -578,48 +585,51 @@ function viewCreate(errMsg){
   leave(); curView = 'create';
   const target = createTarget ? getSet(createTarget) : null;
   tint(target ? target.color : 0);
-  const maxPages = 20;
+  const maxPages = 20, tab = createTab;
+  const tabs = [['photo', '📷 צילום'], ['topic', '✏️ נושא'], ['list', '⌨️ רשימה שלי']];
   app.innerHTML = `
-    <div class="topbar"><button class="iconbtn" data-a="back" aria-label="חזרה">${I.back}</button><div class="grow">${target ? 'הוספת דפים' : 'סט חדש'}</div></div>
-    ${target ? `<p class="muted">מוסיף ל: <strong dir="auto">${esc(target.title)}</strong></p>` : ''}
+    <div class="topbar"><button class="iconbtn" data-a="back" aria-label="חזרה">${I.back}</button><div class="grow">${target ? 'הוספה ל: ' + esc(target.title) : 'תרגול חדש'}</div></div>
+    <div class="seg" role="tablist">${tabs.map(([k, n]) => `<button type="button" role="tab" data-tab="${k}" aria-selected="${k === tab}">${n}</button>`).join('')}</div>
+    <div id="msg">${errMsg ? `<p class="note bad">${esc(errMsg)}</p>` : ''}</div>
+    ${tab === 'photo' ? `
     <section class="panel stack">
-      <div class="row between"><h3>הדפים</h3><span class="muted small count" id="pc"></span></div>
+      <p class="muted small">צלם דף אחד או כמה דפים. האפליקציה קוראת אותם ובונה תרגול.</p>
       <div class="pages" id="pages"></div>
       <div class="row">
-        <button class="btn primary grow" type="button" data-a="cam">${I.cam} צלם דף</button>
+        <button class="btn primary grow" type="button" data-a="cam">${I.cam} צלם</button>
         <button class="btn grow" type="button" data-a="gal">${I.img} מהגלריה</button>
       </div>
-      <label class="stack" for="note" style="gap:6px"><span class="small muted">הערה (לא חובה)</span>
-        <textarea id="note" rows="2" placeholder="למשל: רק המילים באנגלית, או: שאלות ברמה של כיתה ח׳"></textarea></label>
-      <div id="msg">${errMsg ? `<p class="note bad">${esc(errMsg)}</p>` : ''}</div>
-      <button class="btn primary wide" id="go" type="button" data-a="go">צור תרגול</button>
-    </section>
-    <div class="divider">או כתוב נושא</div>
+      <details class="more inner"><summary>הוסף הערה (לא חובה)</summary>
+        <textarea id="note" rows="2" placeholder="למשל: רק המילים באנגלית, או: שאלות ברמה של כיתה ח׳"></textarea></details>
+      <button class="btn colored wide big" data-c="2" id="go" type="button" data-a="go">✨ צור תרגול <small id="pc"></small></button>
+    </section>` : tab === 'topic' ? `
     <section class="panel stack">
-      <label class="stack" for="topic" style="gap:6px"><span class="small muted">נושא שתרצה ללמוד, או סיכום שתדביק כאן</span>
-        <textarea id="topic" rows="3" placeholder="למשל: משוואות עם נעלם אחד&#10;או: סיפור קצר באנגלית על חיות&#10;או: שאלות על תזונה נכונה"></textarea></label>
-      <div class="pickrow">
-        <label for="subj"><span class="small muted">מקצוע</span>
-          <select id="subj"><option value="">כל נושא</option>${SUBJECTS.map(x => `<option>${x}</option>`).join('')}</select></label>
-        <label for="lvl"><span class="small muted">רמה</span>
-          <select id="lvl"><option value="">רגילה</option>${LEVELS.map(x => `<option>${x}</option>`).join('')}</select></label>
-        <label for="lng"><span class="small muted">שפה</span>
-          <select id="lng">${LANGS.map(([v, n]) => `<option value="${v}">${n}</option>`).join('')}</select></label>
-      </div>
-      <label class="row small" for="wantread" style="gap:8px"><input type="checkbox" id="wantread"> הוסף סיפור לקריאה עם שאלות</label>
-      <button class="btn primary wide" type="button" data-a="text">צור תרגול מהטקסט</button>
-    </section>
-    <div class="divider">או הקלדה ידנית</div>
+      <label class="stack" for="topic" style="gap:6px"><span>על מה תרצה לתרגל?</span>
+        <textarea id="topic" rows="3" placeholder="למשל: מילים באנגלית על חיות&#10;או: משוואות עם נעלם אחד&#10;או הדבק כאן סיכום"></textarea></label>
+      <label class="stack" for="lvl" style="gap:6px"><span class="small muted">כיתה</span>
+        <select id="lvl"><option value="">לא משנה</option>${LEVELS.map(x => `<option>${x}</option>`).join('')}</select></label>
+      <details class="more inner"><summary>אפשרויות נוספות</summary>
+        <div class="pickrow two">
+          <label for="subj"><span class="small muted">מקצוע</span><select id="subj"><option value="">כל נושא</option>${SUBJECTS.map(x => `<option>${x}</option>`).join('')}</select></label>
+          <label for="lng"><span class="small muted">שפה</span><select id="lng">${LANGS.map(([v, n]) => `<option value="${v}">${n}</option>`).join('')}</select></label>
+        </div>
+        <label class="row small" for="wantread" style="gap:8px"><input type="checkbox" id="wantread"> הוסף סיפור לקריאה עם שאלות</label>
+      </details>
+      <button class="btn colored wide big" data-c="2" type="button" data-a="text">✨ צור תרגול</button>
+    </section>` : `
     <section class="panel stack">
-      <label class="stack" for="manual" style="gap:6px"><span class="small muted">שורה לכל פריט: מילה - פירוש</span>
-        <textarea id="manual" rows="5" placeholder="apple - תפוח&#10;river - נהר&#10;כוח - מסה כפול תאוצה"></textarea></label>
-      <button class="btn wide" type="button" data-a="manual">צור מהרשימה</button>
-    </section>`;
+      <label class="stack" for="manual" style="gap:6px"><span>כתוב את המילים שלך, שורה לכל מילה</span>
+        <textarea id="manual" rows="7" placeholder="apple - תפוח&#10;river - נהר&#10;כוח - מסה כפול תאוצה"></textarea></label>
+      <p class="small muted">בכל שורה: המילה, מקף, והפירוש.</p>
+      <button class="btn colored wide big" data-c="2" type="button" data-a="manual">✨ צור תרגול</button>
+    </section>`}`;
   const pagesEl = document.getElementById('pages'), pc = document.getElementById('pc'), go = document.getElementById('go');
   function drawPages(){
+    if (!pagesEl) return;
     pagesEl.innerHTML = pages.map((p, i) => `<div class="thumb"><img src="${p.url}" alt="דף ${i + 1}"><b>${i + 1}</b><button type="button" data-rm="${i}" aria-label="הסר דף ${i + 1}">×</button></div>`).join('')
-      + (pages.length < maxPages ? `<button class="addtile" type="button" data-a="gal">${I.plus}<span>הוסף דף</span></button>` : '');
-    pc.textContent = pages.length ? pages.length + ' דפים' : '';
+      + (pages.length && pages.length < maxPages ? `<button class="addtile" type="button" data-a="gal">${I.plus}<span>עוד דף</span></button>` : '');
+    pagesEl.hidden = !pages.length;
+    pc.textContent = pages.length ? (pages.length === 1 ? 'מדף אחד' : 'מ-' + pages.length + ' דפים') : '';
     go.disabled = !pages.length;
   }
   drawPages();
@@ -631,6 +641,7 @@ function viewCreate(errMsg){
     if (curView === 'create') drawPages();
   };
   app.onclick = e => {
+    const tb = e.target.closest('[data-tab]'); if (tb) { createTab = tb.dataset.tab; return viewCreate(); }
     const rm = e.target.closest('[data-rm]');
     if (rm) { const i = +rm.dataset.rm; URL.revokeObjectURL(pages[i].url); pages.splice(i, 1); return drawPages(); }
     const a = e.target.closest('[data-a]'); if (!a) return;
@@ -638,19 +649,19 @@ function viewCreate(errMsg){
       case 'back': return target ? viewSet(target) : viewHome();
       case 'cam': return openPicker('cam');
       case 'gal': return openPicker('gal');
-      case 'go': return generate(target, document.getElementById('note').value.trim());
+      case 'go': return generate(target, (document.getElementById('note') || {}).value?.trim() || '');
       case 'text': {
         const t = document.getElementById('topic').value.trim();
         const opts = { subject: document.getElementById('subj').value, level: document.getElementById('lvl').value,
           lang: document.getElementById('lng').value, reading: document.getElementById('wantread').checked };
-        if (t.length < 3 && !opts.subject && (!opts.lang || opts.lang === 'he')) return toast('כתוב נושא, או בחר מקצוע או שפה');
+        if (t.length < 3 && !opts.subject && (!opts.lang || opts.lang === 'he')) return toast('כתוב על מה תרצה לתרגל');
         return generateText(target, t, opts);
       }
       case 'manual': {
         const lines = document.getElementById('manual').value.split('\n').map(l => l.trim()).filter(Boolean);
         const cards = lines.map(l => { const m = l.split(/\s+[-–—:=]\s+|\t|\s*[–—=]\s*/); return m.length >= 2 ? { t: m[0].trim(), d: m.slice(1).join(' - ').trim() } : null; }).filter(c => c && c.t && c.d);
-        if (!cards.length) return toast('כתוב כל פריט בשורה: מילה - פירוש');
-        const s = target || fixSet({ title: 'רשימה חדשה' });
+        if (!cards.length) return toast('כתוב כל מילה בשורה: מילה - פירוש');
+        const s = target || fixSet({ title: 'הרשימה שלי' });
         mergeInto(s, { cards }); saveSet(s); return viewSet(s);
       }
     }
@@ -696,7 +707,7 @@ async function generateText(target, text, opts){
     if (!target && opts.subject && !s.folder) s.folder = opts.subject;
     if (opts.level) s.level = opts.level;
     if (opts.lang && opts.lang !== 'he') s.learn = opts.lang;
-    saveSet(s); viewSet(s); nikudNote(data);
+    saveSet(s); viewSet(s); nikudNote(data); verifySet(s, data && data.model);
   } catch(e) {
     if (e && e.name === 'AbortError') return viewCreate();
     if (e && e.code === 'need_code') return viewNeedCode(() => generateText(target, text, opts));
@@ -713,7 +724,7 @@ async function generate(target, note){
       <svg class="pen" viewBox="0 0 64 64" aria-hidden="true"><path d="M6 22c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/><path d="M6 36c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/><path d="M6 50c8-12 14-12 18 0s10 12 16 0 10-10 18-3"/></svg>
       <h2>קורא את הדפים</h2>
       <p class="muted" id="st">מכין את התמונות…</p>
-      <p class="small muted">זה לוקח בדרך כלל חצי דקה עד דקה לכל כמה דפים.</p>
+      <p class="small muted">זה לוקח בדרך כלל 15–40 שניות.</p>
       <button class="btn" type="button" data-a="stop">עצור</button>
     </div>${gameZone()}`;
   cleanup = startGames();
@@ -728,32 +739,77 @@ async function generate(target, note){
   prepared.forEach(img => { if (cur.length && (cur.length >= 3 || size + img.data.length > 3e6)) { chunks.push(cur); cur = []; size = 0; } cur.push(img); size += img.data.length; });
   if (cur.length) chunks.push(cur);
   const s = target || fixSet({ title: '' });
-  let ok = 0, lastErr = null, cancelled = false, done = 0;
-  for (let i = 0; i < chunks.length; i++) {
-    if (ctl.signal.aborted) { cancelled = true; break; }
-    const from = done + 1, to = done + chunks[i].length; done = to;
-    st.textContent = chunks.length > 1 ? `קורא דפים ${from}–${to} מתוך ${pages.length}` : (pages.length > 1 ? `קורא ${pages.length} דפים` : 'קורא את הדף');
-    try {
-      const data = await callApi({ mode: 'pages', images: chunks[i], note, from, to, total: pages.length, first: i === 0 }, ctl.signal);
-      const part = normalize(data && data.result);
-      if (part.cards.length || part.mcq.length || part.scr.length || part.lesson.length) { mergeInto(s, part); ok++; }
-      else lastErr = { code: 'empty' };
-    } catch(e) {
-      if (e && e.name === 'AbortError') { cancelled = true; break; }
-      lastErr = e;
-      if (e && e.code === 'need_code') return viewNeedCode(() => generate(target, note));
-      if (['rate','no_key','offline','no_server'].includes(e && e.code)) break;
+  // two requests at a time, so many pages don't wait for each other; results are merged in page order
+  let ok = 0, lastErr = null, cancelled = false, stop = false, finished = 0, next = 0, usedModel = '';
+  const parts = new Array(chunks.length), starts = []; let k = 1; chunks.forEach(c => { starts.push(k); k += c.length; });
+  const show = () => { st.textContent = pages.length > 1 ? `קורא ${pages.length} דפים · ${finished}/${chunks.length} מוכנים` : 'קורא את הדף'; };
+  show();
+  async function worker(){
+    while (!stop && next < chunks.length) {
+      const i = next++;
+      if (ctl.signal.aborted) { cancelled = true; stop = true; return; }
+      try {
+        const data = await callApi({ mode: 'pages', images: chunks[i], note, from: starts[i], to: starts[i] + chunks[i].length - 1, total: pages.length, first: i === 0 }, ctl.signal);
+        const part = normalize(data && data.result);
+        if (part.cards.length || part.mcq.length || part.scr.length || part.lesson.length) { parts[i] = part; ok++; usedModel = (data && data.model) || usedModel; }
+        else lastErr = { code: 'empty' };
+      } catch(e) {
+        if (e && e.name === 'AbortError') { cancelled = true; stop = true; return; }
+        lastErr = e;
+        if (['need_code','rate','no_key','offline','no_server'].includes(e && e.code)) { stop = true; return; }
+      }
+      finished++; show();
     }
   }
+  await Promise.all([worker(), worker()]);
+  if (lastErr && lastErr.code === 'need_code' && !ok) return viewNeedCode(() => generate(target, note));
+  parts.forEach(p => { if (p) mergeInto(s, p); });
   if (ok) {
     if (!s.title || s.title === 'סט ללא שם') s.title = 'סט חדש';
     pages.forEach(p => URL.revokeObjectURL(p.url)); pages = [];
-    saveSet(s); viewSet(s);
+    saveSet(s); viewSet(s); verifySet(s, usedModel);
     if (cancelled) toast('נעצר. מה שכבר נוצר נשמר');
     else if (ok < chunks.length) toast('חלק מהדפים לא נקראו, השאר נשמרו');
   } else {
     viewCreate(cancelled ? '' : (lastErr && lastErr.code === 'empty' ? 'לא מצאתי בדפים חומר לתרגול. נסה צילום חד יותר, מקרוב ובאור טוב.' : errText(lastErr)));
   }
+}
+
+/* ---------------- second opinion ---------------- */
+// After a set is made, another model checks it in the background while the student already practises.
+// Wrong answers are corrected, questions with no single right answer are removed, wrong translations fixed.
+async function verifySet(s, model){
+  const v = s.vok || (s.vok = {});
+  const qs = s.mcq.filter(m => !v[m.id]).map(m => ({ id: m.id, q: m.q, o: m.o, a: m.a }));
+  const texts = [];
+  s.reading.forEach(r => {
+    if (!r.id) r.id = 'r' + rid();
+    const todo = r.q.map((m, i) => ({ m, i })).filter(({ i }) => !v[r.id + '_' + i]);
+    if (!todo.length) return;
+    texts.push({ id: r.id, text: r.text });
+    todo.forEach(({ m, i }) => qs.push({ id: r.id + '_' + i, q: m.q, o: m.o, a: m.a, ctx: r.id }));
+  });
+  const cards = s.cards.filter(c => !v[c.id]).map(c => ({ id: c.id, t: c.t, d: c.d }));
+  if (!qs.length && !cards.length) return;
+  let d;
+  try { d = await callApi({ mode: 'verify', model: model || '', level: s.level || '', qs: qs.slice(0, 45), cards: cards.slice(0, 45), texts: texts.slice(0, 4) }); }
+  catch(e) { return; } // no second opinion this time; nothing changes
+  const ch = (d && d.changes) || {}, fixedQ = [], dropped = [];
+  (ch.q || []).forEach(c => {
+    const m = s.mcq.find(x => x.id === c.id);
+    const [rid_, qi] = String(c.id).split('_'), r = !m && s.reading.find(x => x.id === rid_);
+    const list = m ? s.mcq : r ? r.q : null, item = m || (r && r.q[+qi]);
+    if (!item) return;
+    if (c.drop) dropped.push({ list, item });
+    else if (Number.isInteger(c.a) && c.a >= 0 && c.a < item.o.length) { item.a = c.a; item.x = ''; fixedQ.push(item); }
+  });
+  dropped.forEach(({ list, item }) => { const i = list.indexOf(item); if (i >= 0) list.splice(i, 1); });
+  let fixedC = 0;
+  (ch.cards || []).forEach(c => { const card = s.cards.find(x => x.id === c.id); if (card && c.d) { card.d = c.d; fixedC++; } });
+  qs.slice(0, 45).forEach(q => { v[q.id] = 1; }); cards.slice(0, 45).forEach(c => { v[c.id] = 1; });
+  if (sets.includes(s)) saveSet(s);
+  const n = fixedQ.length + dropped.length + fixedC;
+  toast(n ? `🔎 בדיקה שנייה: תיקנתי ${n} ${n === 1 ? 'פריט' : 'פריטים'} בסט "${s.title}"` : `🔎 בדיקה שנייה: הכל בסט נכון ✓`);
 }
 
 /* ---------------- set screen ---------------- */
@@ -833,60 +889,70 @@ function viewSet(s){
   leave(); curView = 'set';
   if (!s) return viewHome();
   tint(s.color);
-  const n = s.cards.length;
   let editing = false;
   function draw(){
-    const k = knownCount(s), scr = scrItems(s), ci = caseInfo(s), cp = ci.pairs, mp = mcqPool(s);
-    const due = dueIds(s).length, speakable = canSpeak && s.cards.length > 0;
-    const modes = [
-      { id:'review', c:3, ic:I.cards, name:'חזרה להיום', sub: due ? due + ' פריטים שכדאי לחזור עליהם' : 'אין מה לחזור היום 👌', ok: due > 0 },
-      { id:'test', c:2, ic:I.abc, name:'מבחן מסכם', sub: s.best.test != null ? 'השיא שלך ' + s.best.test + '%' : 'כל סוגי השאלות, עם ציון', ok: s.cards.length + s.mcq.length > 0 },
-      { id:'dict', c:0, ic:I.say, name:'הכתבה', sub: speakable ? 'שומעים מילה וכותבים' : 'צריך מילים בסט', ok: speakable },
-      { id:'flash', c:0, ic:I.cards, name:'כרטיסיות', sub:'הופכים ובודקים מה יודעים', ok: s.cards.length > 0 },
-      { id:'mcq', c:1, ic:I.abc, name:'אמריקאיות', sub: mp.length + ' שאלות לבחירה', ok: mp.length > 0 },
-      { id:'match', c:2, ic:I.match, name:'התאמת זוגות', sub:'מחברים מילה לפירוש', ok: s.cards.length >= 3 },
-      { id:'scr', c:3, ic:I.scr, name:'סידור אותיות', sub: scr.length ? scr.length + ' מילים לאיות' : 'אין מילים בודדות בסט', ok: scr.length > 0 },
-      { id:'case', c:4, ic:I.Aa, name: ci.name, sub: ci.sub, ok: cp.length >= 3, hide: !!ci.hide },
-      { id:'write', c:5, ic:I.pen, name:'כתיבה', sub:'רואים פירוש, כותבים את המילה', ok: s.cards.length > 0 },
-      { id:'lesson', c:3, ic:I.book, name:'שיעור קצר', sub: s.lesson.length ? 'הסבר על החומר' : 'ייווצר בלחיצה', ok: s.lesson.length > 0 || s.cards.length + s.mcq.length > 0 },
-      { id:'read', c:5, ic:I.book, name:'קטע קריאה', sub: s.reading.length ? (s.reading.length === 1 ? 'סיפור אחד · אפשר להוסיף עוד' : s.reading.length + ' סיפורים · אפשר להוסיף עוד') : 'צור סיפור עם שאלות', ok: true },
-      { id:'vs', c:4, ic:'<span class="emo">⚔️</span>', name:'אחד על אחד', sub: mp.length >= 4 ? 'משחק מול חבר בזמן אמת' : 'צריך לפחות 4 שאלות', ok: mp.length >= 4 },
-      { id:'videos', c:1, ic:I.play, name:'סרטונים', sub: s.topics.length ? s.topics.length + ' נושאים ביוטיוב' : 'חיפוש ביוטיוב', ok: true }
-    ];
+    const n = s.cards.length, k = knownCount(s), scr = scrItems(s), ci = caseInfo(s), cp = ci.pairs, mp = mcqPool(s);
+    const due = dueIds(s).length, speakable = canSpeak && n > 0, any = n + s.mcq.length > 0;
+    // the main ways to practise; the rest waits under "more"
+    const main = [
+      { id:'flash', c:0, ic:I.cards, name:'כרטיסיות', sub:'הופכים ובודקים', ok: n > 0 },
+      { id:'mcq', c:1, ic:I.abc, name:'אמריקאיות', sub: mp.length + ' שאלות', ok: mp.length > 0 },
+      { id:'match', c:2, ic:I.match, name:'התאמת זוגות', sub:'משחק על זמן', ok: n >= 3 },
+      { id:'write', c:5, ic:I.pen, name:'כתיבה', sub:'כותבים את המילה', ok: n > 0 },
+      { id:'read', c:3, ic:I.book, name:'קטע קריאה', sub: s.reading.length ? s.reading.length + ' סיפורים עם שאלות' : 'סיפור עם שאלות', ok: true },
+      { id:'lesson', c:4, ic:I.book, name:'שיעור קצר', sub:'הסבר על החומר', ok: any }
+    ].filter(m => m.ok);
+    const more = [
+      { id:'scr', c:3, ic:I.scr, name:'סידור אותיות', ok: scr.length > 0 },
+      { id:'dict', c:0, ic:I.say, name:'הכתבה', ok: speakable },
+      { id:'case', c:4, ic:I.Aa, name: ci.name, ok: cp.length >= 3 && !ci.hide },
+      { id:'test', c:2, ic:I.abc, name: 'מבחן מסכם' + (s.best.test != null ? ' · ' + s.best.test + '%' : ''), ok: any },
+      { id:'videos', c:1, ic:I.play, name:'סרטונים', ok: true }
+    ].filter(m => m.ok);
+    const tile = m => `<button class="mode" data-c="${m.c}" data-mode="${m.id}">${m.ic}<strong>${m.name}</strong>${m.sub ? `<span>${esc(m.sub)}</span>` : ''}</button>`;
     const listHtml = () => {
-      if (!s.cards.length && !s.mcq.length) return '<p class="muted small">אין עדיין פריטים בסט.</p>';
-      const cards = s.cards.length || editing ? `<div class="list">${s.cards.map(c => editing
+      if (!s.cards.length && !s.mcq.length && !editing) return '<p class="muted small">אין עדיין פריטים בסט.</p>';
+      const cards = `<div class="list">${s.cards.map(c => editing
         ? `<div class="li"><input type="text" id="t_${c.id}" value="${esc(c.t)}" dir="auto" aria-label="מילה"><input type="text" id="d_${c.id}" value="${esc(c.d)}" dir="auto" aria-label="פירוש"><button class="x" type="button" data-del="${c.id}" aria-label="מחק">×</button></div>`
         : `<div class="li"><span class="t" dir="auto">${esc(c.t)}</span><span dir="auto">${esc(c.d)}</span><span class="known ${s.known[c.id] ? 'on' : ''}" title="${s.known[c.id] ? 'יודע' : 'עוד לא'}"></span></div>`).join('')}
-        ${editing ? `<div class="li"><input type="text" id="t_new" placeholder="מילה חדשה" dir="auto" aria-label="מילה חדשה"><input type="text" id="d_new" placeholder="פירוש" dir="auto" aria-label="פירוש חדש"><span></span></div>` : ''}</div>` : '';
-      const qs = s.mcq.length ? `<h3>שאלות אמריקאיות</h3><div class="list">${s.mcq.map(m => `<div class="qitem"><div dir="auto">${esc(m.q)}<br><span class="small muted" dir="auto">תשובה: ${esc(m.o[m.a])}</span></div>${editing ? `<button class="x" type="button" data-delq="${m.id}" aria-label="מחק שאלה">×</button>` : ''}</div>`).join('')}</div>` : '';
-      return cards + qs;
+        ${editing ? `<div class="li"><input type="text" id="t_new" placeholder="מילה חדשה" dir="auto" aria-label="מילה חדשה"><input type="text" id="d_new" placeholder="פירוש" dir="auto" aria-label="פירוש חדש"><span></span></div>` : ''}</div>`;
+      const qs = s.mcq.length ? `<h3>שאלות</h3><div class="list">${s.mcq.map(m => `<div class="qitem"><div dir="auto">${esc(m.q)}<br><span class="small muted" dir="auto">תשובה: ${esc(m.o[m.a])}</span></div>${editing ? `<button class="x" type="button" data-delq="${m.id}" aria-label="מחק שאלה">×</button>` : ''}</div>`).join('')}</div>` : '';
+      return (s.cards.length || editing ? cards : '') + qs;
     };
     app.innerHTML = `
       <div class="topbar"><button class="iconbtn" data-a="home" aria-label="לכל הסטים">${I.back}</button><div class="grow"></div>
-        <button class="iconbtn" data-a="share" aria-label="שתף סט">${I.share}</button>
-        <button class="btn ghost" data-a="add">${I.plus} הוסף דפים</button></div>
-      <div class="stack" style="gap:8px">
-        <input class="titlein" id="title" type="text" value="${esc(s.title)}" dir="auto" aria-label="שם הסט">
-        <span class="muted small">${esc(setStats(s))}${n ? ` · יודע <strong>${k}</strong> מתוך ${s.cards.length}` : ''}</span>
-        ${s.cards.length ? `<div class="meter"><i style="width:${Math.round(k / s.cards.length * 100)}%"></i></div>` : ''}
+        <button class="iconbtn" data-a="share" aria-label="שתף סט">${I.share}</button></div>
+      <div class="stack" style="gap:6px">
+        <h1 class="settitle" dir="auto">${esc(s.title)}</h1>
+        <span class="muted small">${esc(setStats(s))}${n ? ` · יודע <strong>${k}</strong> מתוך ${n}` : ''}</span>
+        ${n ? `<div class="meter"><i style="width:${Math.round(k / n * 100)}%"></i></div>` : ''}
         ${challengeHtml(s)}
-        <label class="folderrow" for="folder"><span class="small muted">📁 תיקייה</span><input type="text" id="folder" list="folderlist" value="${esc(s.folder || '')}" placeholder="למשל: אנגלית" dir="auto"><datalist id="folderlist">${[...new Set([...SUBJECTS, ...sets.map(x => x.folder).filter(Boolean)])].map(f => `<option value="${esc(f)}">`).join('')}</datalist></label>
-        <div class="swatches" role="group" aria-label="צבע הסט">${[0,1,2,3,4,5].map(c => `<button type="button" data-c="${c}" data-color="${c}" aria-pressed="${s.color === c}" aria-label="צבע ${c + 1}"></button>`).join('')}</div>
       </div>
-      <div class="modes">${modes.filter(m => !m.hide).map(m => `<button class="mode" data-c="${m.c}" data-mode="${m.id}" ${m.ok ? '' : 'disabled'}>${m.ic}<strong>${m.name}</strong><span>${esc(m.sub)}</span></button>`).join('')}</div>
-      <div class="row between"><h3>מה יש בסט</h3>
-        <div class="row">${editing ? `<button class="btn ghost" data-a="cancel">ביטול</button><button class="btn primary" data-a="saveedit">שמור</button>` : `<button class="btn ghost" data-a="edit">עריכה</button>`}</div></div>
-      <div class="stack">${listHtml()}</div>
-      <div class="row">${k ? '<button class="btn ghost" data-a="reset">אפס התקדמות</button>' : ''}<span class="grow"></span><button class="btn ghost danger" data-a="del">מחק סט</button></div>`;
+      ${any ? `<button class="btn colored wide big" data-c="2" data-a="go">▶ התחל לתרגל <small>${due ? due + ' פריטים לחזרה היום' : 'שאלות מעורבות מכל הסוגים'}</small></button>` : ''}
+      <h3>או בחר איך לתרגל</h3>
+      <div class="modes">${main.map(tile).join('')}</div>
+      ${more.length ? `<details class="more"><summary>עוד משחקים ותרגולים</summary><div class="modes small">${more.map(tile).join('')}</div></details>` : ''}
+      ${mp.length >= 4 ? `<button class="btn wide" data-mode="vs">⚔️ שחק על הסט הזה מול חבר</button>` : ''}
+      <details class="more" ${editing ? 'open' : ''}><summary>📋 מה יש בסט</summary>
+        <div class="row end">${editing ? `<button class="btn ghost" data-a="cancel">ביטול</button><button class="btn primary" data-a="saveedit">שמור</button>` : `<button class="btn ghost" data-a="edit">✏️ ערוך מילים</button>`}</div>
+        <div class="stack">${listHtml()}</div>
+      </details>
+      <details class="more"><summary>⚙️ הגדרות הסט</summary>
+        <label class="stack" for="title" style="gap:4px"><span class="small muted">שם הסט</span><input id="title" type="text" value="${esc(s.title)}" dir="auto"></label>
+        <label class="stack" for="folder" style="gap:4px"><span class="small muted">📁 תיקייה</span><input type="text" id="folder" list="folderlist" value="${esc(s.folder || '')}" placeholder="למשל: אנגלית" dir="auto"><datalist id="folderlist">${[...new Set([...SUBJECTS, ...sets.map(x => x.folder).filter(Boolean)])].map(f => `<option value="${esc(f)}">`).join('')}</datalist></label>
+        <span class="small muted">צבע</span>
+        <div class="swatches" role="group" aria-label="צבע הסט">${[0,1,2,3,4,5].map(c => `<button type="button" data-c="${c}" data-color="${c}" aria-pressed="${s.color === c}" aria-label="צבע ${c + 1}"></button>`).join('')}</div>
+        <button class="btn wide" data-a="add">${I.plus} הוסף עוד דפים או נושא</button>
+        <div class="row">${k ? '<button class="btn ghost" data-a="reset">אפס התקדמות</button>' : ''}<span class="grow"></span><button class="btn ghost danger" data-a="del">מחק סט</button></div>
+      </details>`;
   }
   draw();
   app.onchange = e => { if (e.target.id === 'folder') { s.folder = e.target.value.trim().slice(0, 40); saveSet(s); toast(s.folder ? 'הועבר לתיקייה ' + s.folder : 'הוצא מהתיקייה'); return; }
-    if (e.target.id === 'title') { const v = e.target.value.trim(); if (v && v !== s.title) { s.title = v.slice(0, 60); saveSet(s); toast('השם נשמר'); } } };
+    if (e.target.id === 'title') { const v = e.target.value.trim(); if (v && v !== s.title) { s.title = v.slice(0, 60); saveSet(s); toast('השם נשמר'); const h = app.querySelector('.settitle'); if (h) h.textContent = s.title; } } };
   let delArm = 0;
   app.onclick = e => {
     const col = e.target.closest('[data-color]');
-    if (col) { s.color = +col.dataset.color; tint(s.color); saveSet(s); return draw(); }
+    if (col) { s.color = +col.dataset.color; tint(s.color); saveSet(s); app.querySelectorAll('[data-color]').forEach(b => b.setAttribute('aria-pressed', String(b === col))); return; }
     const m = e.target.closest('[data-mode]');
     if (m && !m.disabled) return startMode(s, m.dataset.mode);
     const d = e.target.closest('[data-del]');
@@ -897,7 +963,8 @@ function viewSet(s){
     switch (a.dataset.a) {
       case 'home': return viewHome();
       case 'share': return shareSet(s);
-      case 'add': createTarget = s.id; pages = []; return viewCreate();
+      case 'go': return dueIds(s).length ? modeReview(s) : modeTest(s);
+      case 'add': createTarget = s.id; pages = []; createTab = 'photo'; return viewCreate();
       case 'edit': editing = true; return draw();
       case 'cancel': { editing = false; try { const fresh = (JSON.parse(lget(LKEY) || '[]') || []).find(x => x.id === s.id); if (fresh) Object.assign(s, fixSet(fresh)); } catch(err){} return draw(); }
       case 'saveedit': {
@@ -974,7 +1041,7 @@ function modeFlash(s, onlyUnknown, reverse){
         <div class="face">${sayBtn(front, fl)}<div class="big" dir="auto">${esc(front)}</div><span class="hint">הקש כדי להפוך</span></div>
         <div class="face back">${sayBtn(back, bl)}<div class="big" dir="auto">${esc(back)}</div></div>
       </div></div>
-      <div class="row"><button class="btn grow" data-f="no" style="color:var(--bad)">עוד לא</button><button class="btn grow" data-f="yes" style="color:var(--ok)">יודע ✓</button></div>
+      <div class="row"><button class="btn grow big no" data-f="no">עוד לא</button><button class="btn grow big yes" data-f="yes">יודע ✓</button></div>
       <div class="row center"><button class="btn ghost small" data-f="rev">הפוך צדדים</button></div>`;
   }
   function next(knew){
@@ -1257,9 +1324,9 @@ async function makeStory(s, o){
     const data = await callApi({ mode: 'story', lang: o.lang, level: o.level, genre: o.genre, idea: o.idea, words, avoid: s.reading.map(r => r.title) }, ctl.signal);
     const r = normalize(data && data.result).reading[0];
     if (!r) throw { code: 'bad_json' };
-    r.lang = r.lang || o.lang; r.genre = o.genre;
+    r.lang = r.lang || o.lang; r.genre = o.genre; r.id = 'r' + rid();
     s.reading.push(r); if (s.reading.length > 40) s.reading.shift();
-    saveSet(s); if (curView === 'story-gen') modeRead(s, r); nikudNote(data);
+    saveSet(s); if (curView === 'story-gen') modeRead(s, r); nikudNote(data); verifySet(s, data && data.model);
   } catch(e) {
     if (e && e.name === 'AbortError') return;
     if (e && e.code === 'need_code') return viewNeedCode(() => makeStory(s, o));
