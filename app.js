@@ -162,7 +162,7 @@ function fixSet(s){
     termLang: s.termLang || '', defLang: s.defLang || '', alphabet: !!s.alphabet, example: !!s.example,
     cards: arr(s.cards), mcq: arr(s.mcq), scr: arr(s.scr), topics: arr(s.topics), lesson: arr(s.lesson), reading: arr(s.reading),
     known: s.known && typeof s.known === 'object' ? s.known : {}, best: s.best && typeof s.best === 'object' ? s.best : {},
-    srs: s.srs && typeof s.srs === 'object' ? s.srs : {}, folder: typeof s.folder === 'string' ? s.folder.slice(0, 40) : '', last: typeof s.last === 'string' ? s.last : '', nextStory: s.nextStory && s.nextStory.r ? s.nextStory : undefined, vok: s.vok && typeof s.vok === 'object' ? s.vok : {}, wordTr: s.wordTr && typeof s.wordTr === 'object' ? s.wordTr : {}, level: typeof s.level === 'string' ? s.level.slice(0, 30) : '', learn: typeof s.learn === 'string' ? s.learn.slice(0, 5) : '', challenge: s.challenge && typeof s.challenge === 'object' ? s.challenge : null };
+    srs: s.srs && typeof s.srs === 'object' ? s.srs : {}, folder: typeof s.folder === 'string' ? s.folder.slice(0, 40) : '', last: typeof s.last === 'string' ? s.last : '', nextStory: s.nextStory && s.nextStory.r ? s.nextStory : undefined, vok: s.vok && typeof s.vok === 'object' ? s.vok : {}, wordTr: s.wordTr && typeof s.wordTr === 'object' ? s.wordTr : {}, sentInfo: s.sentInfo && typeof s.sentInfo === 'object' ? s.sentInfo : {}, level: typeof s.level === 'string' ? s.level.slice(0, 30) : '', learn: typeof s.learn === 'string' ? s.learn.slice(0, 5) : '', challenge: s.challenge && typeof s.challenge === 'object' ? s.challenge : null };
 }
 
 /* An option like "five (חמש)" gives the answer away: drop a bracketed part written in another script than the option itself. */
@@ -559,8 +559,8 @@ function runQuiz(title, qs, back, opts){
   function draw(){
     const q = qs[i], s = q.s; answered = false; tint(s.color);
     let body = '';
-    if (q.type === 'mcq') body = `<div class="panel stack">${q.again ? '<span class="eyebrow">🔁 עוד הזדמנות לשאלה שטעית בה</span>' : ''}<div class="row" style="align-items:flex-start"><p class="q grow" dir="auto">${esc(q.q)}</p>${q.say ? sayBtn(q.q, s.termLang) : ''}</div></div>
-      <div class="opts">${q.o.map((o, j) => `<button class="opt" data-c="${j % 6}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span><span dir="auto">${esc(o)}</span></button>`).join('')}</div>`;
+    if (q.type === 'mcq') body = `<div class="panel stack">${q.again ? '<span class="eyebrow">🔁 עוד הזדמנות לשאלה שטעית בה</span>' : ''}<div class="row" style="align-items:flex-start"><p class="q grow bi">${bi(q.q)}</p>${q.say ? sayBtn(q.q, s.termLang) : ''}</div></div>
+      <div class="opts">${q.o.map((o, j) => `<button class="opt" data-c="${OPT_C[j % 5]}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span><span dir="auto">${esc(o)}</span></button>`).join('')}</div>`;
     else if (q.type === 'flash') body = `<div class="panel stack qflash"><span class="eyebrow">אתה יודע מה זה?</span><p class="q" dir="auto">${esc(q.c.t)}</p>${sayBtn(q.c.t, s.termLang)}
       <div id="rev" hidden><p class="explain" dir="auto">${esc(q.c.d)}</p></div>
       <button class="btn wide" type="button" data-show="1">הצג תשובה</button></div>
@@ -604,14 +604,23 @@ function runQuiz(title, qs, back, opts){
     const o = e.target.closest('[data-o]'); if (!o || answered || q.type !== 'mcq') return;
     const pick = +o.dataset.o, ok = pick === q.a; record(q, ok);
     app.querySelectorAll('.opt').forEach((b, j) => { if (j === q.a) b.classList.add('right'); else if (j === pick) b.classList.add('wrong'); b.disabled = true; });
-    document.getElementById('after').innerHTML = `<div class="stack">${q.x ? `<p class="explain" dir="auto">${esc(q.x)}</p>` : ''}${!ok ? `<button class="btn ghost" type="button" data-why="${pick}">🤔 למה זו התשובה?</button>` : ''}${nextBtn()}</div>`;
+    document.getElementById('after').innerHTML = `<div class="stack">${q.x ? `<p class="explain" dir="auto">${esc(q.x)}</p>` : ''}${!ok && !q.x ? `<button class="btn ghost" type="button" data-why="${pick}">🤔 למה זו התשובה?</button>` : ''}${nextBtn()}</div>`;
   };
 }
-async function explainWhy(q, pick){
+// "why is this the answer?": a question made from the flashcards is explained at once from the cards themselves;
+// other questions ask the server, but never wait longer than a few seconds
+async function explainWhy(q, pick, set){
+  const right = q.o[q.a], chosen = q.o[pick], st = set || q.s;
+  if (st && (q.say || q.kind === 'card')) {
+    const card = st.cards.find(c => c.t === q.q) || {}, other = st.cards.find(c => cleanOpt(c.d) === chosen);
+    return `«${q.q}» פירושו «${right}».` + (other ? ` «${chosen}» זה הפירוש של «${other.t}».` : '');
+  }
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 9000);
   try {
-    const data = await callApi({ mode: 'explain', q: q.q, options: q.o, correct: q.o[q.a], chosen: q.o[pick] });
-    return String((data && data.result && data.result.explain) || 'לא הצלחתי להסביר כרגע.');
-  } catch(e) { return e && e.code === 'need_code' ? 'צריך קוד גישה כדי לקבל הסבר.' : errText(e); }
+    const data = await callApi({ mode: 'explain', q: q.q, options: q.o, correct: right, chosen }, ctl.signal);
+    return String((data && data.result && data.result.explain) || 'התשובה הנכונה: ' + right);
+  } catch(e) { return e && e.code === 'need_code' ? 'צריך קוד גישה כדי לקבל הסבר.' : 'התשובה הנכונה: ' + right; }
+  finally { clearTimeout(t); }
 }
 function modeReview(s){ const ids = new Set(dueIds(s)); runQuiz('חזרה להיום', shuffle(itemsOf(s).filter(it => ids.has(it.id))).slice(0, 20).map(it => shapeQ(it)), () => viewSet(s)); }
 function modeTest(s){
@@ -977,6 +986,8 @@ function scrItems(s){
 }
 /* "big and small letters" in the set's own language. Languages without case get their own version:
    Hebrew final letters, Arabic letter forms, Japanese hiragana ↔ katakana. */
+// answer options never use green or red, those mean right and wrong
+const OPT_C = [0, 1, 2, 4, 5];
 const ABC = {
   en: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', fr: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÉÈÊÀÂÇÎÔÙÛË', es: 'ABCDEFGHIJKLMNÑOPQRSTUVWXYZÁÉÍÓÚÜ',
   de: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ', it: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÀÈÉÌÒÙ', pt: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÁÂÃÀÇÉÊÍÓÔÕÚ',
@@ -1031,7 +1042,8 @@ function caseInfo(s){
 }
 const casePool = s => caseInfo(s).pairs;
 function mcqPool(s){
-  const out = s.mcq.map(m => ({ id: m.id, q: m.q, o: m.o.map(cleanOpt), a: m.a, x: m.x }));
+  const letterQ = m => !s.alphabet && m.o.every(o => /^\s*\p{L}\s*$/u.test(cleanOpt(o)));
+  const out = s.mcq.filter(m => !letterQ(m)).map(m => ({ id: m.id, q: m.q, o: m.o.map(cleanOpt), a: m.a, x: m.x }));
   // questions from the flashcards: not for single letters ("z" → "זד" teaches nothing),
   // and the wrong answers are written in the same language as the right one
   const usable = s.cards.filter(c => !/^\s*\p{L}\s*$/u.test(String(c.t)) && !/^\s*\p{L}\s*$/u.test(cleanOpt(c.d)));
@@ -1256,8 +1268,8 @@ function modeMcq(s){
     const q = qs[i];
     app.innerHTML = `${topbar('אמריקאיות', (i + 1) + '/' + qs.length)}
       <div class="bar"><i style="width:${i / qs.length * 100}%"></i></div>
-      <div class="panel stack">${q.again ? '<span class="eyebrow">🔁 עוד הזדמנות לשאלה שטעית בה</span>' : ''}<div class="row" style="align-items:flex-start"><p class="q grow" dir="auto">${esc(q.q)}</p>${q.say ? sayBtn(q.q, s.termLang) : ''}</div></div>
-      <div class="opts">${q.o.map((o, j) => `<button class="opt" data-c="${j % 6}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span><span dir="auto">${esc(o)}</span></button>`).join('')}</div>
+      <div class="panel stack">${q.again ? '<span class="eyebrow">🔁 עוד הזדמנות לשאלה שטעית בה</span>' : ''}<div class="row" style="align-items:flex-start"><p class="q grow bi">${bi(q.q)}</p>${q.say ? sayBtn(q.q, s.termLang) : ''}</div></div>
+      <div class="opts">${q.o.map((o, j) => `<button class="opt" data-c="${OPT_C[j % 5]}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span><span dir="auto">${esc(o)}</span></button>`).join('')}</div>
       <div id="after"></div>`;
     answered = false;
   }
@@ -1265,7 +1277,7 @@ function modeMcq(s){
   app.onclick = e => {
     if (e.target.closest('[data-a="quit"]')) return viewSet(s);
     const why = e.target.closest('[data-why]');
-    if (why) { why.disabled = true; why.textContent = 'חושב…'; explainWhy(qs[i], +why.dataset.why).then(t => why.replaceWith(Object.assign(document.createElement('p'), { className: 'explain', dir: 'auto', textContent: t }))); return; }
+    if (why) { why.disabled = true; why.textContent = 'חושב…'; explainWhy(qs[i], +why.dataset.why, s).then(t => why.replaceWith(Object.assign(document.createElement('p'), { className: 'explain', dir: 'auto', textContent: t }))); return; }
     if (e.target.closest('[data-n]')) {
       i++;
       if (i >= qs.length) {
@@ -1282,7 +1294,7 @@ function modeMcq(s){
     if (pick === q.a && !q.again) right++;
     if (pick !== q.a && !q.again) qs.push({ ...q, again: true }); // asked once more at the end of the round
     srsMark(s, q.id, pick === q.a); award(pick === q.a); saveSoon(s);
-    document.getElementById('after').innerHTML = `<div class="stack">${q.x ? `<p class="explain" dir="auto">${esc(q.x)}</p>` : ''}${pick !== q.a ? `<button class="btn ghost" type="button" data-why="${pick}">🤔 למה זו התשובה?</button>` : ''}<button class="btn primary wide" data-n="1">${i + 1 < qs.length ? 'הבא' : 'לתוצאה'}</button></div>`;
+    document.getElementById('after').innerHTML = `<div class="stack">${q.x ? `<p class="explain" dir="auto">${esc(q.x)}</p>` : ''}${pick !== q.a && !q.x ? `<button class="btn ghost" type="button" data-why="${pick}">🤔 למה זו התשובה?</button>` : ''}<button class="btn primary wide" data-n="1">${i + 1 < qs.length ? 'הבא' : 'לתוצאה'}</button></div>`;
   };
 }
 
@@ -1434,41 +1446,67 @@ function sentencesOf(s){
   s.cards.forEach(c => { const n = String(c.t).trim().split(/\s+/).length; if (n >= 4 && n <= 10) out.push({ t: c.t.trim(), lang: s.termLang, hint: c.d }); });
   return out;
 }
+// the meaning of each sentence and the other correct word orders, asked once for the whole set and kept
+function sentJob(s){
+  const list = sentencesOf(s).filter(x => !(s.sentInfo && s.sentInfo[x.t])).slice(0, 20);
+  if (!list.length) return Promise.resolve();
+  return job(s.id + ':sents', async () => {
+    const d = await callApi({ mode: 'sents', sentences: list.map(x => x.t), lang: (list[0].lang || s.termLang || 'en').slice(0, 2) });
+    const items = d && d.result && Array.isArray(d.result.items) ? d.result.items : null;
+    if (!items) throw { code: 'bad_json' };
+    s.sentInfo = s.sentInfo || {};
+    list.forEach((x, k) => { const it = items[k] || {}; s.sentInfo[x.t] = { tr: String(it.tr || '').slice(0, 300), alts: (Array.isArray(it.alts) ? it.alts : []).map(a => String(a).slice(0, 200)).slice(0, 6) }; });
+    if (sets.includes(s)) saveSet(s);
+  });
+}
 function modeSentence(s){
   leave();
   const items = shuffle(sentencesOf(s)).slice(0, 6);
-  let i = 0, firstTry = 0, tries, pool, line;
+  let i = 0, firstTry = 0, tries, pool, line, showTr = false, done = false;
   const norm = t => String(t).toLowerCase().replace(/[^\p{L}\p{N}\s']/gu, '').replace(/\s+/g, ' ').trim();
+  // a chip shows the word without its punctuation, and the first word without its capital letter
+  // (unless it is "I" or a name), so neither gives away where it goes
+  const names = new Set(), text = s.reading.map(r => r.text).join(' ');
+  // a capitalized word in the middle of a sentence is a name (no lookbehind: older phones don't support it)
+  text.replace(/([^.!?\n\s])\s+(\p{Lu}\p{Ll}+)/gu, (m, p1, w) => { names.add(w); return m; });
+  const chip = (w, k) => { let c = w.replace(/^[^\p{L}\p{N}']+|[^\p{L}\p{N}']+$/gu, ''); if (k === 0 && c !== 'I' && !names.has(c)) c = c.charAt(0).toLowerCase() + c.slice(1); return c; };
+  sentJob(s).catch(() => {});
   function setup(){
-    const words = items[i].t.split(/\s+/); let mixed, guard = 0;
-    do { mixed = shuffle(words.map((w, k) => ({ w, k }))); } while (mixed.map(x => x.k).join() === words.map((_, k) => k).join() && guard++ < 20);
-    pool = mixed; line = []; tries = 0; draw();
+    const words = items[i].t.split(/\s+/).map((w, k) => ({ w: chip(w, k), k })); let mixed, guard = 0;
+    do { mixed = shuffle(words); } while (mixed.map(x => x.k).join() === words.map(x => x.k).join() && guard++ < 20);
+    pool = mixed; line = []; tries = 0; showTr = false; done = false; draw();
   }
   function draw(state){
-    const it = items[i], rtl = isRtl(it.t);
+    const it = items[i], rtl = isRtl(it.t), info = (s.sentInfo || {})[it.t];
+    const meaning = it.hint || (info && info.tr);
     app.innerHTML = `${topbar('בנה משפט', (i + 1) + '/' + items.length)}
       <div class="bar"><i style="width:${i / items.length * 100}%"></i></div>
-      <div class="panel stack center"><span class="eyebrow">סדר את המילים למשפט</span>${it.hint ? `<p class="q" dir="auto">${esc(it.hint)}</p>` : ''}</div>
+      <div class="panel stack center"><span class="eyebrow">סדר את המילים למשפט</span>
+        ${it.hint || showTr || state ? (meaning ? `<p class="q" dir="auto">${esc(meaning)}</p>` : '<p class="muted small">מתרגם…</p>') : '<button class="btn ghost" data-x="tr">💡 מה המשפט אומר?</button>'}</div>
       <div class="sline ${state || ''}" dir="${rtl ? 'rtl' : 'ltr'}">${line.length ? line.map((x, k) => `<button class="chip word" data-back="${k}">${esc(x.w)}</button>`).join('') : '<span class="muted small">לחץ על המילים לפי הסדר</span>'}</div>
       <div class="spool" dir="${rtl ? 'rtl' : 'ltr'}">${pool.map((x, k) => `<button class="chip word" data-take="${k}">${esc(x.w)}</button>`).join('')}</div>
       ${state === 'ok' ? `<p class="note good">נכון! 🎉</p>${sayBtn(it.t, it.lang, 'btn ghost')}<button class="btn primary wide big" data-x="next">${i + 1 < items.length ? 'למשפט הבא' : 'לתוצאה'}</button>`
-        : state === 'show' ? `<p class="note bad" dir="auto">${esc(it.t)}</p><button class="btn primary wide big" data-x="next">${i + 1 < items.length ? 'למשפט הבא' : 'לתוצאה'}</button>`
+        : state === 'show' ? `<p class="note">ככה המשפט נבנה. נסה לזכור אותו לפעם הבאה 🙂</p>${sayBtn(it.t, it.lang, 'btn ghost')}<button class="btn primary wide big" data-x="next">${i + 1 < items.length ? 'למשפט הבא' : 'לתוצאה'}</button>`
         : `<div class="row center">${tries >= 1 ? '<button class="btn ghost" data-x="show">הצג תשובה</button>' : ''}<button class="btn ghost" data-x="clear">התחל מחדש</button></div>`}`;
   }
-  function check(){
-    const it = items[i];
-    if (norm(line.map(x => x.w).join(' ')) === norm(it.t)) { if (!tries) firstTry++; award(true); speak(it.t, it.lang); return draw('ok'); }
+  async function check(){
+    const it = items[i], got = norm(line.map(x => x.w).join(' '));
+    // a sentence can have more than one right order; wait a moment for the list of them if it is still coming
+    if (got !== norm(it.t) && !((s.sentInfo || {})[it.t]) && jobs.has(s.id + ':sents')) { try { await jobs.get(s.id + ':sents'); } catch(e){} }
+    const alts = (((s.sentInfo || {})[it.t]) || {}).alts || [];
+    if (got === norm(it.t) || alts.some(a => norm(a) === got)) { done = true; if (!tries) firstTry++; award(true); speak(line.map(x => x.w).join(' '), it.lang); return draw('ok'); }
     tries++; award(false); draw('no'); app.querySelector('.sline').classList.add('shake');
   }
   setup();
   app.onclick = e => {
     if (e.target.closest('[data-a="quit"]')) return viewSet(s);
     const tk = e.target.closest('[data-take]'), bk = e.target.closest('[data-back]'), x = e.target.closest('[data-x]');
-    if (tk) { line.push(pool.splice(+tk.dataset.take, 1)[0]); return pool.length ? draw() : check(); }
-    if (bk) { pool.push(line.splice(+bk.dataset.back, 1)[0]); return draw(); }
+    if (!done && tk) { line.push(pool.splice(+tk.dataset.take, 1)[0]); return pool.length ? draw() : check(); }
+    if (!done && bk) { pool.push(line.splice(+bk.dataset.back, 1)[0]); return draw(); }
     if (!x) return;
+    if (x.dataset.x === 'tr') { showTr = true; draw(); if (!((s.sentInfo || {})[items[i].t])) sentJob(s).then(() => { if (curView === 'practice' && showTr) draw(); }).catch(() => {}); return; }
     if (x.dataset.x === 'clear') { pool = [...pool, ...line]; line = []; return draw(); }
-    if (x.dataset.x === 'show') { tries = 9; return draw('show'); }
+    if (x.dataset.x === 'show') { done = true; tries = 9; line = items[i].t.split(/\s+/).map((w, k) => ({ w: chip(w, k), k })); pool = []; return draw('show'); }
     if (x.dataset.x === 'next') { i++; if (i >= items.length) return resultView(s, 'בנה משפט', `${firstTry}/${items.length}`, 'משפטים שסידרת נכון בניסיון הראשון', () => modeSentence(s)); return setup(); }
   };
 }
@@ -1483,7 +1521,7 @@ function modeCatch(s){
   let i = 0, right = 0, lives = 3, lane = 1, raf = 0, y = 0, speed = 0, last = 0, busy = false;
   app.innerHTML = `${topbar('תפוס את הנכון', '')}
     <div class="catchtop"><span id="hearts"></span><span class="pill">⭐ <b id="cscore">0</b></span></div>
-    <div class="panel stack center"><p class="q" dir="auto" id="cq"></p></div>
+    <div class="panel stack center"><p class="q bi" id="cq"></p></div>
     <div class="catch" id="field">${[0, 1, 2].map(k => `<div class="lane" data-lane="${k}"></div>`).join('')}
       <div class="drops" id="drops"></div><div class="basket" id="basket">🧺</div></div>
     <p class="small muted center">לחץ על המסלול שבו נופלת התשובה הנכונה</p>`;
@@ -1493,8 +1531,8 @@ function modeCatch(s){
   function round(){
     if (i >= qs.length || lives <= 0) return end();
     const q = qs[i]; busy = false;
-    document.getElementById('cq').textContent = q.q; document.getElementById('cnt').textContent = (i + 1) + '/' + qs.length;
-    drops.innerHTML = q.o.map((o, k) => `<div class="drop" data-c="${(i + k) % 6}" style="inset-inline-start:${k * 33.333}%"><span dir="auto">${esc(o)}</span></div>`).join('');
+    document.getElementById('cq').innerHTML = bi(q.q); document.getElementById('cnt').textContent = (i + 1) + '/' + qs.length;
+    drops.innerHTML = q.o.map((o, k) => `<div class="drop" data-c="${OPT_C[(i + k) % 5]}" style="inset-inline-start:${k * 33.333}%"><span dir="auto">${esc(o)}</span></div>`).join('');
     y = 0; speed = 0.018 + i * 0.0016; last = performance.now(); raf = requestAnimationFrame(tick);
   }
   function tick(t){
@@ -1607,6 +1645,7 @@ function prepareAhead(s, delay = 2500){
   aheadT = setTimeout(async () => {
     if (!s || !sets.includes(s) || navigator.onLine === false) return;
     for (const r of s.reading) { try { await glossJob(s, r); } catch(e){} }
+    try { if (sentencesOf(s).length >= 3) await sentJob(s); } catch(e){}
     try { if (!s.lesson.length && s.cards.length + s.mcq.length) await lessonJob(s); } catch(e){}
     try { if (!s.nextStory && wantsStories(s)) await storyJob(s); } catch(e){}
     try { if (s.nextStory) await glossJob(s, s.nextStory.r); } catch(e){}
@@ -1778,7 +1817,7 @@ function modeRead(s, r){
     </article>
     ${r.q.length ? `<h3>שאלות הבנה</h3>` : ''}
     <div class="stack">${r.q.map((m, i) => `<div class="panel stack" data-qi="${i}"><p class="q bi">${bi(m.q)}</p>
-      <div class="opts">${m.o.map((o, j) => `<button class="opt" data-c="${j % 6}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span><span dir="auto">${esc(o)}</span></button>`).join('')}</div>
+      <div class="opts">${m.o.map((o, j) => `<button class="opt" data-c="${OPT_C[j % 5]}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span><span dir="auto">${esc(o)}</span></button>`).join('')}</div>
       <div class="after"></div></div>`).join('')}</div>
     <div id="rres"></div>
     <div class="row"><button class="btn colored grow" data-c="5" data-a="newstory">📖 סיפור חדש</button>${s.reading.length > 1 ? `<button class="btn grow" data-a="allst">כל הסיפורים (${s.reading.length})</button>` : ''}</div>`;
@@ -2003,8 +2042,8 @@ function vsPlay(g, start, oppName){
   function showQ(){
     const q = g.questions[me.idx]; locked = false; qStart = Date.now();
     main.innerHTML = `<div class="tbar"><i style="--d:${sec}s"></i></div>
-      <div class="panel stack"><span class="eyebrow">שאלה ${me.idx + 1} מתוך ${n}</span><p class="q" dir="auto">${esc(q.q)}</p></div>
-      <div class="opts">${q.o.map((o, j) => `<button class="opt" data-c="${j % 6}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span><span dir="auto">${esc(o)}</span></button>`).join('')}</div>
+      <div class="panel stack"><span class="eyebrow">שאלה ${me.idx + 1} מתוך ${n}</span><p class="q bi">${bi(q.q)}</p></div>
+      <div class="opts">${q.o.map((o, j) => `<button class="opt" data-c="${OPT_C[j % 5]}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span><span dir="auto">${esc(o)}</span></button>`).join('')}</div>
       <div id="vsfb"></div>`;
     tq = setTimeout(() => answer(-1), sec * 1000);
   }

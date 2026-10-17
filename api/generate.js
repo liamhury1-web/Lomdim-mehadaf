@@ -202,6 +202,15 @@ ${words ? 'If it fits naturally, use a few of these words the student is learnin
 Give it a short title in the passage language${lang === 'he' ? '' : ' with the Hebrew translation in parentheses'}.
 ${READING}
 Reply ONLY JSON: {"reading":[{"title":"","lang":"${lang}","instructions":"","text":"paragraphs split by \\n","questions":[{"q":"","options":["","","",""],"answer":0,"explain":""}]}]}` });
+  } else if (b.mode === 'sents') {
+    const list = (Array.isArray(b.sentences) ? b.sentences : []).slice(0, 20).map(x => String(x).slice(0, 200)).filter(Boolean);
+    if (!list.length) return res.status(400).json({ code: 'bad_request' });
+    parts.push({ text: `A Hebrew-speaking student practises building ${LANG_NAMES[String(b.lang || '').slice(0, 2)] || ''} sentences from mixed-up words. For each sentence below give:
+- "tr": its Hebrew translation;
+- "alts": every OTHER word order that is also a correct, natural sentence using exactly the same words (only capitalization and punctuation may differ). [] if there is none.
+Sentences:
+${list.map((x, i) => (i + 1) + '. ' + x).join('\n')}
+Reply ONLY JSON: {"items":[{"tr":"","alts":[]}]} with one item per sentence, in the same order.` });
   } else if (b.mode === 'gloss') {
     const text = String(b.text || '').slice(0, 4000);
     if (text.length < 5) return res.status(400).json({ code: 'bad_request' });
@@ -331,8 +340,8 @@ Reply ONLY JSON: {"questions":[{"id":"","answer":0}],"cards":[{"id":"","pick":"o
   }
 
   let result;
-  const maxOut = b.mode === 'word' ? 300 : b.mode === 'gloss' ? 6000 : story ? 6000 : 8192;
-  try { result = await ask(parts, grounded, maxOut, b.mode === 'word' || b.mode === 'gloss' ? 0 : b.mode === 'explain' ? 512 : 1024); }
+  const maxOut = b.mode === 'word' ? 300 : b.mode === 'explain' ? 600 : b.mode === 'gloss' || b.mode === 'sents' ? 6000 : story ? 6000 : 8192;
+  try { result = await ask(parts, grounded, maxOut, b.mode === 'word' || b.mode === 'gloss' || b.mode === 'explain' ? 0 : b.mode === 'sents' ? 512 : 1024); }
   catch (e) {
     let ok = false;
     for (const [key, fn] of [[GROQ_KEY, askGroq], [CLAUDE_KEY, askClaude], [OPENAI_KEY, askOpenAI]]) {
