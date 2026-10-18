@@ -226,6 +226,17 @@ Keys: the word in lowercase, exactly as written in the text, without punctuation
     parts.push({ text: `A Hebrew-speaking student reading a ${LANG_NAMES[String(b.lang || '').slice(0, 2)] || ''} text tapped the word "${w}" in this sentence: "${ctx}".
 Give its Hebrew translation as used in this sentence (1-4 words), and its dictionary form in the original language (e.g. infinitive or singular).
 Reply ONLY JSON: {"tr":"","base":""}` });
+  } else if (b.mode === 'trivia') {
+    const topic = String(b.topic || '').slice(0, 120).trim();
+    if (!topic) return res.status(400).json({ code: 'bad_request' });
+    parts.push({ text: `Write a fun quiz game in Hebrew for two friends playing against each other, about: "${topic}".
+- Exactly 12 multiple-choice questions for a general audience (ages 10 and up), from easy to a bit harder, varied (not all about the same detail).
+- Only well-known facts that are certainly true; if unsure about a fact, do not use it. Never invent.
+- 4 short options each, one clearly correct, the others plausible but clearly wrong. No "all of the above", no hints, no parentheses, no answer that appears in the question.
+- "explain": one short Hebrew sentence why the answer is right.
+- "title": a short Hebrew title for the topic (2-4 words).
+If the topic is gibberish, offensive, or not something a quiz can be about, reply {"unclear":true}.
+Reply ONLY JSON: {"title":"","mcq":[{"q":"","options":["","","",""],"answer":0,"explain":""}]}` });
   } else if (b.mode === 'verify') { /* handled below */
   } else if (b.mode === 'lesson') parts.push({ text: LESSON + String(b.material || '').slice(0, 12000) });
   else if (b.mode === 'text') {

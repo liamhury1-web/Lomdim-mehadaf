@@ -795,7 +795,8 @@ function viewHome(){
       <div class="pick2">
         <button class="pick" data-c="0" data-a="photo"><span class="ci">${I.cam}</span><strong>צלם דף</strong><span>דף עבודה, סיכום או רשימת מילים</span></button>
         <button class="pick" data-c="1" data-a="topic"><span class="ci">${I.pen}</span><strong>כתוב נושא</strong><span>למשל: מילים באנגלית לכיתה ה׳</span></button>
-      </div>`}
+      </div>
+      <button class="btn wide" data-a="vs">⚔️ שחק מול חבר</button>`}
     ${codeRow()}
     ${sets.length ? `<details class="more">
       <summary>📲 העברת הסטים לטלפון אחר</summary>
@@ -1174,23 +1175,23 @@ function viewSet(s){
   tint(s.color);
   const n = s.cards.length, k = knownCount(s), scr = scrItems(s), ci = caseInfo(s), cp = ci.pairs, mp = mcqPool(s);
   const due = dueIds(s).length, speakable = canSpeak && n > 0, any = n + s.mcq.length > 0;
+  // learning first (what really teaches), then games, then extras
   const main = [
     { id:'flash', c:0, ic:I.cards, name:'כרטיסיות', ok: n > 0 },
     { id:'mcq', c:1, ic:I.abc, name:'אמריקאיות', ok: mp.length > 0 },
-    { id:'match', c:2, ic:I.match, name:'התאמת זוגות', ok: n >= 3 },
     { id:'write', c:5, ic:I.pen, name:'כתיבה', ok: n > 0 },
+    { id:'dict', c:0, ic:I.say, name:'הכתבה', ok: speakable },
     { id:'read', c:3, ic:I.book, name:'קטע קריאה', ok: true },
-    { id:'lesson', c:4, ic:I.book, name:'שיעור קצר', ok: any }
+    { id:'lesson', c:4, ic:I.book, name:'שיעור קצר', ok: any },
+    { id:'test', c:2, ic:I.abc, name: 'מבחן' + (s.best.test != null ? ' · ' + s.best.test + '%' : ''), ok: any }
   ].filter(m => m.ok);
   const more = [
+    { id:'match', c:2, ic:I.match, name:'התאמת זוגות', ok: n >= 3 },
     { id:'balloon', c:1, ic:'<span class="emo">🎈</span>', name:'הצל את הבלון', ok: balloonWords(s).length >= 3 },
     { id:'catch', c:3, ic:'<span class="emo">🧺</span>', name:'תפוס את הנכון', ok: mp.length >= 3 },
     { id:'sentence', c:5, ic:'<span class="emo">🧩</span>', name:'בנה משפט', ok: sentencesOf(s).length >= 3 },
     { id:'scr', c:3, ic:I.scr, name:'סידור אותיות', ok: scr.length > 0 },
-    { id:'dict', c:0, ic:I.say, name:'הכתבה', ok: speakable },
-    { id:'case', c:4, ic:I.Aa, name: ci.name, ok: cp.length >= 3 && !ci.hide },
-    { id:'test', c:2, ic:I.abc, name: 'מבחן' + (s.best.test != null ? ' · ' + s.best.test + '%' : ''), ok: any },
-    { id:'videos', c:1, ic:I.play, name:'סרטונים', ok: true }
+    { id:'case', c:4, ic:I.Aa, name: ci.name, ok: cp.length >= 3 && !ci.hide }
   ].filter(m => m.ok);
   const tile = m => `<button class="mode" data-c="${m.c}" data-mode="${m.id}">${m.ic}<strong>${m.name}</strong></button>`;
   app.innerHTML = `
@@ -1202,9 +1203,10 @@ function viewSet(s){
       ${challengeHtml(s)}
     </div>
     ${any ? `<button class="btn colored wide big" data-c="2" data-a="go">▶ התחל לתרגל${due ? ` <small>${due} מילים לחזרה היום</small>` : ''}</button>` : ''}
+    <h2 class="sech">📚 ללמוד ולתרגל</h2>
     <div class="modes">${main.map(tile).join('')}</div>
-    ${more.length ? `<details class="more"><summary>🎮 משחקים</summary><div class="modes small">${more.map(tile).join('')}</div></details>` : ''}
-    ${mp.length >= 4 ? `<button class="btn wide" data-mode="vs">⚔️ שחק מול חבר</button>` : ''}`;
+    ${more.length ? `<h2 class="sech">🎮 משחקים</h2><div class="modes small">${more.map(tile).join('')}</div>` : ''}
+    <div class="row extras">${mp.length >= 4 ? `<button class="btn grow" data-mode="vs">⚔️ מול חבר</button>` : ''}<button class="btn grow" data-mode="videos">🎬 סרטונים בנושא</button></div>`;
   app.onclick = e => {
     const m = e.target.closest('[data-mode]');
     if (m) return startMode(s, m.dataset.mode);
@@ -1641,7 +1643,7 @@ function modeCatch(s){
     const q = qs[i]; busy = false;
     document.getElementById('cq').innerHTML = bi(q.q); document.getElementById('cnt').textContent = (i + 1) + '/' + qs.length;
     drops.innerHTML = q.o.map((o, k) => `<div class="drop" data-c="${OPT_C[(i + k) % 5]}" style="inset-inline-start:${k * 33.333}%"><span dir="auto">${esc(o)}</span></div>`).join('');
-    y = 0; speed = 0.018 + i * 0.0016; last = performance.now(); raf = requestAnimationFrame(tick);
+    y = 0; speed = 78 / Math.max(6500, Math.min(13000, 8000 + String(q.q).length * 70 + q.o.join('').length * 25) - i * 200); last = performance.now(); raf = requestAnimationFrame(tick);
   }
   function tick(t){
     const dt = Math.min(50, t - last); last = t; y += speed * dt;
@@ -2016,7 +2018,7 @@ function vsPoll(g, onData, ms){
     try { const d = await roomApi({ action: 'poll', code: g.code }); fails = 0; g.offset = d.now - Date.now(); if (!stop) onData(d); }
     catch(e) {
       if (stop) return;
-      if (e.code === 'not_found') { stop = true; vsHome(g.set ? { set: g.set } : {}); return toast('המשחק הזה כבר נגמר. אפשר ליצור משחק חדש כאן.'); }
+      if (e.code === 'not_found') { stop = true; vsHome(g.set && !g.set.temp ? { set: g.set } : {}); return toast('המשחק הזה כבר נגמר. אפשר ליצור משחק חדש כאן.'); }
       if (++fails === 4) toast('החיבור חלש, ממשיך לנסות…');
     }
     if (!stop) t = setTimeout(tick, ms);
@@ -2040,12 +2042,19 @@ function vsHome(opt){
       <button class="btn primary" type="button" data-a="join">הצטרף</button></div>
     </section>
     <section class="panel stack">
-      <h3>יצירת משחק חדש</h3>
+      <h3>משחק על נושא</h3>
+      <div class="row"><input type="text" id="vstopic" maxlength="80" placeholder="למשל: חלל, כדורגל, היסטוריה" dir="auto" class="grow" aria-label="נושא המשחק">
+      <button class="btn" type="button" data-a="dice" aria-label="נושא אקראי">🎲</button></div>
+      <button class="btn colored wide" data-c="4" type="button" data-a="topicgo">צור משחק</button>
+      <p class="small muted">לא יודעים על מה? לחצו 🎲 ונבחר נושא בשבילכם.</p>
+    </section>
+    ${playable.length || opt.set ? `    <section class="panel stack">
+      <h3>או משחק על סט שלך</h3>
       ${opt.set ? `<button class="btn colored wide" data-c="${opt.set.color}" data-vs="${esc(opt.set.id)}">צור משחק על: ${esc(opt.set.title)}</button>
-        <p class="small muted">או בחר סט אחר:</p>` : '<p class="small muted">בחר על איזה סט לשחק:</p>'}
+        <p class="small muted">או בחר סט אחר:</p>` : ''}
       ${playable.length ? `<div class="stack">${playable.filter(s => s !== opt.set).map(s => `<button class="vid" data-c="${s.color}" data-vs="${esc(s.id)}"><span class="play">⚔️</span><span class="grow"><strong dir="auto">${esc(s.title)}</strong><span class="small muted">${esc(setStats(s))}</span></span></button>`).join('')}</div>`
-        : '<p class="small muted">עוד אין לך סט עם מספיק שאלות. צור סט חדש, ואז חזור לכאן.</p>'}
-    </section>`;
+        : ''}
+    </section>` : ''}`;
   const nameOk = () => {
     const n = document.getElementById('vsname').value.trim();
     if (!n) { toast('כתוב קודם את השם שלך'); document.getElementById('vsname').focus(); return null; }
@@ -2055,6 +2064,13 @@ function vsHome(opt){
     if (e.target.closest('[data-a="quit"]')) return opt.set ? viewSet(opt.set) : viewHome();
     const c = e.target.closest('[data-vs]');
     if (c) { const name = nameOk(); if (!name) return; return vsCreate(getSet(c.dataset.vs), name); }
+    if (e.target.closest('[data-a="dice"]')) { const el = document.getElementById('vstopic'); let t; do { t = VS_TOPICS[Math.floor(Math.random() * VS_TOPICS.length)]; } while (t === el.value && VS_TOPICS.length > 1); el.value = t; return; }
+    if (e.target.closest('[data-a="topicgo"]')) {
+      const name = nameOk(); if (!name) return;
+      const el = document.getElementById('vstopic'); let t = el.value.trim();
+      if (!t) { t = VS_TOPICS[Math.floor(Math.random() * VS_TOPICS.length)]; el.value = t; }
+      return vsTopicGame(t, name);
+    }
     if (e.target.closest('[data-a="join"]')) {
       const name = nameOk(); if (!name) return;
       const code = document.getElementById('vscode').value.replace(/\D/g, '');
@@ -2062,6 +2078,24 @@ function vsHome(opt){
       return vsJoin(code, name);
     }
   };
+}
+const VS_TOPICS = ['חלל וכוכבי לכת', 'חיות בטבע', 'גוף האדם', 'מדינות ובירות', 'כדורגל', 'אולימפיאדה וספורט', 'ממציאים והמצאות', 'דינוזאורים', 'אוקיינוסים וים', 'מזג אוויר', 'היסטוריה של ישראל', 'מצרים העתיקה', 'יוון העתיקה', 'מוזיקה וכלי נגינה', 'מחשבים ואינטרנט', 'מכוניות ותחבורה', 'אוכל מרחבי העולם', 'צבעים ואמנות', 'ציפורים', 'חרקים', 'הרים והרי געש', 'נהרות ואגמים', 'מבנים מפורסמים בעולם', 'שפות העולם', 'מתמטיקה מסביב לנו', 'אנרגיה וחשמל', 'צמחים ופרחים', 'מדע בבית', 'חגי ישראל', 'סרטים מצוירים', 'יבשות העולם', 'ירושלים', 'ארץ ישראל: מקומות לטייל', 'כימיה בחיים', 'האדם הראשון על הירח', 'מספרים ושיאים', 'רובוטים', 'בעלי חיים בים', 'ספורט אתגרי', 'ספרים וסופרים מפורסמים'];
+async function vsTopicGame(topic, name){
+  leave(); curView = 'vs'; tint(4);
+  app.innerHTML = `${topbar('⚔️ אחד על אחד')}<div class="panel working">${mascot('think')}<h2>מכין שאלות על</h2><p class="muted" dir="auto">${esc(topic)}</p><p class="small muted">כמה שניות…</p></div>`;
+  const ctl = new AbortController(); let gone = false;
+  app.onclick = e => { if (e.target.closest('[data-a="quit"]')) { gone = true; ctl.abort(); vsHome(); } };
+  try {
+    const d = await callApi({ mode: 'trivia', topic }, ctl.signal);
+    if (gone || curView !== 'vs') return;
+    const r = d && d.result;
+    if (r && r.unclear) { vsHome(); const el = document.getElementById('vstopic'); if (el) el.value = topic; return toast('לא הבנתי את הנושא. נסה נושא אחר, או לחץ 🎲'); }
+    const s = fixSet({ title: String(r && r.title || topic).slice(0, 40), color: 4 });
+    mergeInto(s, normalize({ mcq: (r && Array.isArray(r.mcq) ? r.mcq : []) }));
+    if (mcqPool(s).length < 4) throw { code: 'empty' };
+    s.temp = true;
+    return vsCreate(s, name);
+  } catch(e) { if (gone || (e && e.name === 'AbortError')) return; vsHome(); toast(vsErr(e)); }
 }
 function vsBusy(text){ app.innerHTML = `${topbar('⚔️ אחד על אחד')}<div class="panel working"><h2>${esc(text)}</h2></div>`; app.onclick = e => { if (e.target.closest('[data-a="quit"]')) viewHome(); }; }
 async function vsCreate(s, name){
@@ -2071,7 +2105,7 @@ async function vsCreate(s, name){
     const d = await roomApi({ action: 'create', questions, title: s.title, name, sec: VS_SEC });
     if (curView === 'vs') vsLobby({ code: d.code, role: 'h', name, title: s.title, questions, set: s, sec: VS_SEC, offset: d.now - Date.now() });
     return d.code;
-  } catch(e) { vsHome({ set: s }); toast(vsErr(e)); }
+  } catch(e) { vsHome(s.temp ? {} : { set: s }); toast(vsErr(e)); }
 }
 async function vsJoin(code, name){
   leave(); curView = 'vs'; vsBusy('מצטרף למשחק…');

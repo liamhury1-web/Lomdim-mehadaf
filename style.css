@@ -476,3 +476,6 @@ details.more summary{color:var(--fg)}
 .linkbtn{background:none;border:0;padding:0;font:inherit;color:var(--c1,#7c9cff);text-decoration:underline;cursor:pointer}
 .toast .undo{margin-inline-start:10px;background:none;border:0;font:inherit;font-weight:800;color:inherit;text-decoration:underline;cursor:pointer;padding:2px 4px}
 .toast{pointer-events:auto}
+.sech{font-size:17px;margin:10px 2px 0}
+.modes > .mode:last-child:nth-child(odd){grid-column:1 / -1}
+.extras{gap:10px;margin-top:6px}
