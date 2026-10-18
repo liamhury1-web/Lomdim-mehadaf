@@ -37,7 +37,8 @@ npx vercel --prod
 
 | משתנה | חובה | מה זה |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | כן | המפתח מ-console.anthropic.com |
+| `GEMINI_API_KEY` | אחד מהשניים | מפתח חינמי מ-aistudio.google.com (מועדף אם קיים) |
+| `ANTHROPIC_API_KEY` | אחד מהשניים | מפתח Claude בתשלום מ-console.anthropic.com |
 | `ACCESS_CODE` | לא | אם מוגדר, האפליקציה תבקש את הקוד לפני יצירת סט. תרגול לא צריך קוד. |
 | `ANTHROPIC_MODEL` | לא | ברירת המחדל: `claude-sonnet-5-5` |
 | `HOURLY_LIMIT` | לא | כמה בקשות בשעה מכל כתובת. ברירת המחדל: 40 |

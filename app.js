@@ -324,12 +324,22 @@ async function encodeSet(s){
   }
   return 'j' + b64url(bytes);
 }
-async function decodeSet(str){
+async function packJson(obj){
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  if ('CompressionStream' in window) {
+    try { const st = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw')); return 'z' + b64url(new Uint8Array(await new Response(st).arrayBuffer())); } catch(e){}
+  }
+  return 'j' + b64url(bytes);
+}
+async function unpackJson(str){
   const kind = str[0], bytes = unb64url(str.slice(1));
   let raw;
   if (kind === 'z') { const st = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw')); raw = new Uint8Array(await new Response(st).arrayBuffer()); }
   else raw = bytes;
-  const o = JSON.parse(new TextDecoder().decode(raw));
+  return JSON.parse(new TextDecoder().decode(raw));
+}
+async function decodeSet(str){ return setFromSlim(await unpackJson(str)); }
+function setFromSlim(o){
   const arr = v => Array.isArray(v) ? v : [];
   const s = fixSet({ title: String(o.t || 'סט משותף').slice(0, 60), termLang: o.tl, defLang: o.dl, alphabet: !!o.a, color: Number.isInteger(o.k) ? o.k : 0, folder: String(o.f || '') });
   if (o.ch && (o.ch.m || o.ch.t != null)) s.challenge = { n: String(o.ch.n || '').slice(0, 30), m: typeof o.ch.m === 'number' ? o.ch.m : null, t: typeof o.ch.t === 'number' ? o.ch.t : null };
@@ -669,6 +679,48 @@ function dailyReview(){
 }
 function totalDue(){ return sets.reduce((n, s) => n + dueIds(s).length, 0); }
 
+/* ---------------- one code box: a friend's game (4 digits) or a set / transfer code (6 letters) ---------------- */
+function codeRow(){
+  return `<div class="coderow"><label for="anycode" class="small muted">יש לך קוד מחבר?</label>
+    <div class="row"><input type="text" id="anycode" maxlength="40" placeholder="הקלד קוד" autocomplete="off" autocapitalize="off" spellcheck="false" dir="ltr" class="grow">
+    <button class="btn" type="button" data-a="opencode">פתח</button></div></div>`;
+}
+function openCode(){
+  const el = document.getElementById('anycode'); let v = (el && el.value || '').trim().toLowerCase();
+  const m = v.match(/#k=([a-z0-9]{6})/) || v.match(/#vs=(\d{4})/); if (m) v = m[1];
+  v = v.replace(/[^a-z0-9]/g, '');
+  if (/^\d{4}$/.test(v)) return vsHome({ code: v });
+  if (/^[a-z0-9]{6}$/.test(v)) return openShortLink(v);
+  toast('הקוד צריך להיות 4 ספרות (משחק) או 6 תווים (סט)'); if (el) el.focus();
+}
+function undoToast(msg, undo){
+  const t = document.getElementById('toast'); t.innerHTML = ''; t.append(msg + ' ');
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'undo'; b.textContent = 'בטל';
+  b.onclick = () => { clearTimeout(toastT); t.hidden = true; undo(); }; t.append(b);
+  t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 6000);
+}
+async function makeTransfer(btn){
+  const box = document.getElementById('xfer'); if (btn) btn.disabled = true;
+  box.innerHTML = '<p class="small muted center">יוצר קוד…</p>';
+  try {
+    const slim = sets.map(x => { const c = { ...x }; delete c.nextStory; delete c.wordTr; delete c.sentInfo; return c; });
+    const data = await packJson({ app: 'lomdim-all', v: 1, sets: slim, stats: stats() });
+    if (data.length > 300000) throw new Error('big');
+    const r = await fetch('/api/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'put', data }) });
+    const d = await r.json(); if (!r.ok || !d.code) throw new Error('srv');
+    box.innerHTML = `<div class="xcode" dir="ltr">${esc(d.code)}</div><p class="small muted center">בטלפון השני: פותחים את האפליקציה ← "יש לך קוד מחבר?" ← מקלידים את הקוד.</p>`;
+  } catch(e) {
+    box.innerHTML = `<p class="note bad">${e && e.message === 'big' ? 'יש יותר מדי סטים לקוד אחד. השתמש ב"שמור לקובץ".' : 'לא הצלחתי ליצור קוד. בדוק את האינטרנט ונסה שוב.'}</p>`;
+  }
+  if (btn) btn.disabled = false;
+}
+function importAll(o){
+  let added = 0;
+  (o.sets || []).forEach(x => { const s = fixSet(x), cur = getSet(s.id); if (!cur) { sets.push(s); added++; } else if ((s.updated || 0) > (cur.updated || 0)) { Object.assign(cur, s); added++; } });
+  if (o.stats && typeof o.stats === 'object') { const st = stats(); if ((o.stats.points || 0) > (st.points || 0)) saveStats({ ...o.stats, ...st, points: o.stats.points, correct: Math.max(o.stats.correct || 0, st.correct || 0), answers: Math.max(o.stats.answers || 0, st.answers || 0), days: { ...(o.stats.days || {}), ...(st.days || {}) }, badges: [...new Set([...(o.stats.badges || []), ...(st.badges || [])])] }); }
+  persist(); return added;
+}
+
 /* ---------------- backup ---------------- */
 function backupNow(){
   const data = JSON.stringify({ app: 'lomdim-mehadaf', v: 1, at: new Date().toISOString(), sets, stats: stats() });
@@ -682,10 +734,7 @@ function restoreFrom(file){
   fr.onload = () => {
     try {
       const o = JSON.parse(fr.result); if (!o || !Array.isArray(o.sets)) throw 0;
-      let added = 0;
-      o.sets.forEach(x => { const s = fixSet(x), cur = getSet(s.id); if (!cur) { sets.push(s); added++; } else if ((s.updated || 0) > (cur.updated || 0)) { Object.assign(cur, s); added++; } });
-      if (o.stats && typeof o.stats === 'object') { const st = stats(); if ((o.stats.points || 0) > (st.points || 0)) saveStats({ ...o.stats, ...st, points: o.stats.points, correct: Math.max(o.stats.correct || 0, st.correct || 0), answers: Math.max(o.stats.answers || 0, st.answers || 0), days: { ...(o.stats.days || {}), ...(st.days || {}) }, badges: [...new Set([...(o.stats.badges || []), ...(st.badges || [])])] }); }
-      persist(); toast(added ? 'שוחזרו ' + added + ' סטים' : 'כל הסטים כבר קיימים'); viewHome();
+      const added = importAll(o); toast(added ? 'שוחזרו ' + added + ' סטים' : 'כל הסטים כבר קיימים'); viewHome();
     } catch(e) { toast('הקובץ הזה לא נראה כמו גיבוי של האפליקציה'); }
   };
   fr.readAsText(file);
@@ -716,8 +765,7 @@ function viewHome(){
   const st = stats(), sk = streakOf(st), nb = BADGES.filter(b => (st.badges || []).includes(b[0])).length;
   app.innerHTML = `
     <header class="hero${sets.length ? ' compact' : ''}">
-      <div class="rainbow" aria-hidden="true">${[0,1,2,3,4,5].map(c => `<i data-c="${c}"></i>`).join('')}</div>
-      <div class="row herorow">${sets.length ? '' : mascot('')}<h1><span>לומדים</span> מהדף</h1></div>
+      <div class="row herorow">${sets.length ? '' : mascot('')}<h1>לומדים מהדף</h1></div>
       ${sets.length ? '' : '<p class="muted">מצלמים דף או כותבים נושא, ומקבלים תרגול.</p>'}
     </header>
     ${installHtml()}
@@ -743,29 +791,32 @@ function viewHome(){
         </div>`; }).join('')}</div>
       <button class="btn wide" data-a="vs">⚔️ שחק מול חבר</button>`
     : `
-      <section class="panel stack start">
-        <h2>איך מתחילים?</h2>
-        <button class="choice" data-c="0" data-a="photo"><span class="ci">${I.cam}</span><span class="grow"><strong>צלם דף לימוד</strong><span>דף עבודה, סיכום או רשימת מילים</span></span></button>
-        <button class="choice" data-c="1" data-a="topic"><span class="ci">${I.pen}</span><span class="grow"><strong>כתוב מה ללמוד</strong><span>למשל: מילים באנגלית לכיתה ה׳</span></span></button>
-        <button class="choice" data-c="2" data-a="example"><span class="ci">${I.play}</span><span class="grow"><strong>נסה סט לדוגמה</strong><span>מילים באנגלית, כדי לראות איך זה עובד</span></span></button>
-      </section>
-      <p class="muted small center">האפליקציה בונה כרטיסיות, שאלות אמריקאיות, משחקים וקטעי קריאה, ושומרת הכול בטלפון.</p>`}
-    <details class="more">
-      <summary>⚙️ גיבוי והעברה לטלפון אחר</summary>
-      <p class="muted small">הסטים נשמרים רק בטלפון הזה. שמור גיבוי לקובץ, ותוכל לשחזר אותו בטלפון אחר.</p>
-      <div class="row"><button class="btn grow" type="button" data-a="backup">שמור גיבוי</button><button class="btn grow" type="button" data-a="restore">שחזר מגיבוי</button></div>
-    </details>`;
+      <h2 class="pickq">מה רוצים ללמוד?</h2>
+      <div class="pick2">
+        <button class="pick" data-c="0" data-a="photo"><span class="ci">${I.cam}</span><strong>צלם דף</strong><span>דף עבודה, סיכום או רשימת מילים</span></button>
+        <button class="pick" data-c="1" data-a="topic"><span class="ci">${I.pen}</span><strong>כתוב נושא</strong><span>למשל: מילים באנגלית לכיתה ה׳</span></button>
+      </div>`}
+    ${codeRow()}
+    ${sets.length ? `<details class="more">
+      <summary>📲 העברת הסטים לטלפון אחר</summary>
+      <p class="muted small">הסטים שמורים רק בטלפון הזה. כדי להעביר אותם, צור קוד והקלד אותו בטלפון השני.</p>
+      <button class="btn primary wide" type="button" data-a="transfer">צור קוד העברה</button>
+      <div id="xfer"></div>
+      <p class="small muted center">אין אינטרנט? <button class="linkbtn" type="button" data-a="backup">שמור לקובץ</button> · <button class="linkbtn" type="button" data-a="restore">טען מקובץ</button></p>
+    </details>` : ''}`;
+  const ci = document.getElementById('anycode'); if (ci) ci.onkeydown = e => { if (e.key === 'Enter') openCode(); };
   app.onclick = async e => {
     const o = e.target.closest('[data-open]'); if (o) { manageSets = false; return viewSet(getSet(o.dataset.open)); }
     const ds = e.target.closest('[data-delset]');
-    if (ds) { const id = ds.dataset.delset; if (delArmId === id) { const x = getSet(id); delArmId = ''; if (x) { removeSet(x); toast('הסט נמחק'); } if (!sets.length) manageSets = false; } else { delArmId = id; setTimeout(() => { if (delArmId === id) { delArmId = ''; if (curView === 'home') viewHome(); } }, 3500); } return viewHome(); }
+    if (ds) { const id = ds.dataset.delset; if (delArmId === id) { const x = getSet(id); delArmId = ''; if (x) { const at = sets.indexOf(x); removeSet(x); undoToast('הסט נמחק', () => { sets.splice(Math.min(at, sets.length), 0, x); persist(); if (curView === 'home') viewHome(); }); } if (!sets.length) manageSets = false; } else { delArmId = id; setTimeout(() => { if (delArmId === id) { delArmId = ''; if (curView === 'home') viewHome(); } }, 3500); } return viewHome(); }
     const pl = e.target.closest('[data-play]'); if (pl) { const s = getSet(pl.dataset.play); return startMode(s, s.last && MODE_NAME[s.last] ? s.last : 'go'); }
     const fo = e.target.closest('[data-folder]'); if (fo) { homeFolder = fo.dataset.folder; return viewHome(); }
     const a = e.target.closest('[data-a]'); if (!a) return;
     switch (a.dataset.a) {
       case 'photo': return startCreate('photo');
       case 'topic': return startCreate('topic');
-      case 'example': { const s = exampleSet(); saveSet(s); return viewSet(s); }
+      case 'transfer': return makeTransfer(a);
+      case 'opencode': return openCode();
       case 'install': if (installEvt) { installEvt.prompt(); try { await installEvt.userChoice; } catch(err){} installEvt = null; } return viewHome();
       case 'hideinstall': lset('lomdim_install_hide', '1'); return viewHome();
       case 'daily': return dailyReview();
@@ -2157,7 +2208,9 @@ async function openShortLink(code){
   try {
     const r = await fetch('/api/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'get', code }) });
     const d = await r.json(); if (!r.ok || !d.data) throw 0;
-    return viewImport(await decodeSet(d.data));
+    const o = await unpackJson(d.data);
+    if (o && o.app === 'lomdim-all') { const n = importAll(o); history.replaceState(null, '', location.pathname); viewHome(); return toast(n ? 'הועברו ' + n + ' סטים 🎉' : 'כל הסטים כבר נמצאים כאן'); }
+    return viewImport(setFromSlim(o));
   } catch(e) { history.replaceState(null, '', location.pathname); viewHome(); toast('הקישור הזה כבר לא פעיל. בקש מהחבר לשלוח את הסט שוב.'); }
 }
 /* ---------------- boot ---------------- */
