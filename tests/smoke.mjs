@@ -7,7 +7,7 @@ const LIVE = !/localhost|127\.0\.0\.1/.test(BASE);
 
 const fails = [], passes = [];
 const check = (ok, name, extra) => { (ok ? passes : fails).push(name + (extra ? ' — ' + extra : '')); console.log((ok ? '✅ ' : '❌ ') + name + (extra ? ' — ' + extra : '')); };
-async function step(name, fn){ try { await fn(); check(true, name); } catch (e) { check(false, name, String(e && e.message || e).split('\n')[0]); } }
+async function step(name, fn){ try { await fn(); check(true, name); } catch (e) { const m = String(e && e.message || e), w = m.match(/waiting for locator\('[^']*'\)|[^\n]*intercepts pointer events/g); check(false, name, m.split('\n')[0] + (w ? ' · ' + [...new Set(w)].slice(0, 2).join(' · ') : '')); } }
 
 const cards = [['dog','כלב'],['cat','חתול'],['horse','סוס'],['rabbit','ארנב'],['turtle','צב'],['lion','אריה']];
 const SET = { id: 't1', title: 'בדיקה', termLang: 'en', defLang: 'he', cards: cards.map(([t, d], i) => ({ id: 'c' + i, t, d })),
@@ -114,6 +114,17 @@ await step('1 על 1 על נושא אקראי מהמסך הראשי', async () =
   await pg.goto(BASE + '/'); const n = await pg.evaluate(() => (JSON.parse(localStorage.getItem('lomdim_sets_v1') || '[]')).length); if (n) throw new Error('נשמר סט מיותר');
 });
 
+await step('סיפור חדש: אורך והערות נשלחים', async () => {
+  let sent = null; const h = r => { try { const b = JSON.parse(r.postData() || '{}'); if (b.mode === 'story') sent = b; } catch {} };
+  pg.on('request', h);
+  await pg.goto(BASE + '/'); await pg.evaluate(s => localStorage.setItem('lomdim_sets_v1', s), JSON.stringify([SET]));
+  await openSet(); await pg.click('.modes [data-mode=read]'); await pg.waitForSelector('[data-a=newstory]'); await pg.click('[data-a=newstory]');
+  await pg.click('[data-len="5"]'); await pg.fill('#sidea', 'על כדורגל, רק 3 שאלות'); await pg.click('[data-a=mkstory]');
+  for (let i = 0; i < 40 && !sent; i++) await pg.waitForTimeout(100);
+  pg.off('request', h);
+  if (!sent || sent.lines !== 5 || !/כדורגל/.test(sent.idea)) throw new Error(JSON.stringify(sent));
+  await quit();
+});
 await step('גודל טקסט: מגדילים, נשמר, וחוזרים ל-100%', async () => {
   await pg.goto(BASE + '/'); await pg.click('#zbtn'); await pg.click('[data-z="1"]'); await pg.click('[data-z="1"]');
   if ((await pg.innerText('#zval')).trim() !== '130%') throw new Error(await pg.innerText('#zval'));

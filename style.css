@@ -488,3 +488,4 @@ details.more summary{color:var(--fg)}
 .zpanel .zval{min-width:64px;background:color-mix(in srgb,var(--fg) 8%,transparent)}
 body:has(#field) .zoom{display:none}
 body:has(.toast:not([hidden])) .zoom{bottom:calc(70px + env(safe-area-inset-bottom,0px))}
+.chips.wrap{padding:0 0 2px;max-width:none;margin:0}

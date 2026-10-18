@@ -193,10 +193,12 @@ Reply ONLY JSON: {"explain":"..."}` });
     const lang = String(b.lang || 'en').slice(0, 5), level = String(b.level || '').slice(0, 40);
     const genre = GENRES[b.genre] || 'any genre you like, be creative and surprising';
     const avoid = (Array.isArray(b.avoid) ? b.avoid : []).slice(-15).map(x => String(x).slice(0, 80)).filter(Boolean);
-    const idea = String(b.idea || '').slice(0, 200), words = String(b.words || '').slice(0, 600);
+    const idea = String(b.idea || '').slice(0, 300), words = String(b.words || '').slice(0, 600), lines = Math.max(0, Math.min(40, Math.round(Number(b.lines) || 0)));
     parts.push({ text: `Write ONE new reading passage for a Hebrew-speaking student in Israel.
 Language of the passage: ${LANG_NAMES[lang] || lang}. Student level: ${level || 'grade 7-8'}. Genre: ${genre}.
 ${idea ? 'The student asked for: "' + idea + '"' : 'Possible setting (only if it fits the genre): ' + SETTINGS[Math.floor(Math.random() * SETTINGS.length)] + '.'}
+${lines ? `Length: about ${lines} lines of text on a phone (roughly ${lines * 9} words), instead of the usual length for the grade.` : ''}
+${idea ? 'The student\'s requests (topic, style, number of questions, etc.) come first: follow them exactly, even where they differ from the rules below, as long as the text stays suitable and true.' : ''}
 ${avoid.length ? 'It must be clearly different (topic, characters, setting) from these earlier passages: ' + avoid.join(' | ') + '.' : ''}
 ${words ? 'If it fits naturally, use a few of these words the student is learning: ' + words : ''}
 Give it a short title in the passage language${lang === 'he' ? '' : ' with the Hebrew translation in parentheses'}.

@@ -5,7 +5,7 @@ import { createHash } from 'crypto';
 
 const KEY = process.env.GEMINI_API_KEY;
 const MODELS = (process.env.TTS_MODEL || 'gemini-3.1-flash-tts-preview,gemini-3.8-flash-lite-tts,gemini-3.8-flash-tts,gemini-2.5-flash-preview-tts').split(',').map(m => m.trim()).filter(Boolean);
-const VOICE = process.env.TTS_VOICE || 'Kore';
+const VOICE = process.env.TTS_VOICE || 'Sulafat'; // warm, human-sounding voice (Kore sounded flat)
 // the database variables may carry a prefix chosen in Vercel (e.g. STORAGE_KV_REST_API_URL), so look for any of them
 function envEnd(...ends){ for (const e of ends) { if (process.env[e]) return process.env[e]; const k = Object.keys(process.env).find(n => n.endsWith('_' + e)); if (k) return process.env[k]; } return ''; }
 const DB = envEnd('KV_REST_API_URL', 'UPSTASH_REDIS_REST_URL');
@@ -28,7 +28,12 @@ function wav(pcm, rate){
   return Buffer.concat([h, pcm]);
 }
 async function speak(text, lang, log){
-  const prompt = `Read aloud clearly and naturally, at a calm pace for a student${LANG[lang] ? ', in ' + LANG[lang] : ''}: ${text}`;
+  const L = LANG[lang] || 'the language of the text';
+  const short = text.length < 40;
+  const prompt = `Synthesize speech for the transcript only. Never read these notes aloud.
+DIRECTOR'S NOTES: a warm, friendly teacher, native ${L} speaker, reading to a student. Sound like a real person, not a machine: natural ${L} accent and intonation, a gentle smile in the voice, ${short ? 'said once, clearly, with natural stress' : 'small natural pauses at commas and full stops, calm unhurried pace, light expression for questions and dialogue'}. No exaggeration, no announcer tone, no added words.
+TRANSCRIPT:
+${text}`;
   for (const M of MODELS) {
     try {
       const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + M + ':generateContent', {

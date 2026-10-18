@@ -144,7 +144,7 @@ function chunksOf(text){
 async function ttsBlob(text, lang){
   const key = new Request(location.origin + '/__tts/' + lang + '/' + encodeURIComponent(text).slice(0, 1800));
   let cache = null;
-  try { cache = await caches.open('lomdim-tts'); const hit = await cache.match(key); if (hit) return await hit.blob(); } catch(e){}
+  try { cache = await caches.open('lomdim-tts2'); const hit = await cache.match(key); if (hit) return await hit.blob(); } catch(e){}
   if (ttsFails >= 3 || navigator.onLine === false) return null;
   const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 15000);
   try {
@@ -1745,11 +1745,12 @@ function lessonJob(s){
     if (sets.includes(s)) saveSet(s);
   });
 }
+const STORY_LEN = [[0, 'לפי הכיתה'], [5, 'קצר · 5 שורות'], [10, 'בינוני · 10 שורות'], [20, 'ארוך · 20 שורות']];
 const storyDefaults = s => ({ genre: '', level: s.level || 'כיתה ז׳', lang: s.learn || 'he', idea: '' });
-const sameStory = (a, b) => !!(a && b && a.genre === b.genre && a.level === b.level && a.lang === b.lang && !a.idea && !b.idea);
+const sameStory = (a, b) => !!(a && b && a.genre === b.genre && a.level === b.level && a.lang === b.lang && !a.idea && !b.idea && !a.lines && !b.lines);
 async function fetchStory(s, o, signal){
   const words = s.cards.map(c => c.t).filter(t => !isRtl(t)).slice(0, 30).join(', ');
-  const data = await callApi({ mode: 'story', lang: o.lang, level: o.level, genre: o.genre, idea: o.idea, words, avoid: [...s.reading.map(r => r.title), s.nextStory && s.nextStory.r.title].filter(Boolean) }, signal);
+  const data = await callApi({ mode: 'story', lang: o.lang, level: o.level, genre: o.genre, idea: o.idea, lines: o.lines || 0, words, avoid: [...s.reading.map(r => r.title), s.nextStory && s.nextStory.r.title].filter(Boolean) }, signal);
   const r = normalize(data && data.result).reading[0];
   if (!r) throw { code: 'bad_json' };
   r.lang = r.lang || o.lang; r.genre = o.genre; r.id = 'r' + rid();
@@ -1848,7 +1849,7 @@ function learnCode(s){
 }
 function modeStoryNew(s){
   leave(); curView = 'practice'; tint(s.color);
-  let genre = '';
+  let genre = '', lines = 0;
   const lang = 'he', level = s.level || 'כיתה ז׳'; // Hebrew unless the student picks another language
   app.innerHTML = `${topbar('סיפור חדש')}
     <section class="panel stack">
@@ -1858,7 +1859,9 @@ function modeStoryNew(s){
         <label for="slvl"><span class="small muted">רמה</span><select id="slvl">${LEVELS.map(x => `<option ${x === level ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
         <label for="slng"><span class="small muted">שפה</span><select id="slng">${LANGS.map(([v, n]) => `<option value="${v}" ${v === lang ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
       </div>
-      <label class="stack" for="sidea" style="gap:6px"><span class="small muted">רעיון משלך (לא חובה)</span><input type="text" id="sidea" maxlength="150" placeholder="למשל: ילד שמוצא חתול בגשם" dir="auto"></label>
+      <span class="small muted">אורך</span>
+      <div class="chips wrap" role="group" aria-label="אורך הסיפור">${STORY_LEN.map(([v, n]) => `<button type="button" class="chip" data-len="${v}" aria-pressed="${v === lines}">${n}</button>`).join('')}</div>
+      <label class="stack" for="sidea" style="gap:6px"><span class="small muted">הערות ובקשות (לא חובה)</span><textarea id="sidea" maxlength="300" rows="2" placeholder="למשל: על ילד שמוצא חתול בגשם, עם הרבה דיאלוג, רק 3 שאלות" dir="auto"></textarea></label>
       <button class="btn primary wide" type="button" data-a="mkstory">📖 צור סיפור</button>
       ${s.reading.length ? `<button class="btn wide" type="button" data-a="list">לסיפורים הקודמים (${s.reading.length})</button>` : ''}
     </section>`;
@@ -1867,10 +1870,12 @@ function modeStoryNew(s){
     if (e.target.closest('[data-a="list"]')) return s.reading.length === 1 ? modeRead(s, s.reading[0]) : modeReadPick(s);
     const g = e.target.closest('[data-g]');
     if (g) { genre = g.dataset.g; app.querySelectorAll('[data-g]').forEach(b => b.setAttribute('aria-pressed', String(b === g))); return; }
+    const ln = e.target.closest('[data-len]');
+    if (ln) { lines = Number(ln.dataset.len); app.querySelectorAll('[data-len]').forEach(b => b.setAttribute('aria-pressed', String(b === ln))); return; }
     if (e.target.closest('[data-a="mkstory"]')) {
       const lv = document.getElementById('slvl').value, lg = document.getElementById('slng').value;
       s.level = lv; if (lg !== 'he') s.learn = lg; saveSoon(s);
-      makeStory(s, { genre, level: lv, lang: lg, idea: document.getElementById('sidea').value.trim() });
+      makeStory(s, { genre, level: lv, lang: lg, lines, idea: document.getElementById('sidea').value.trim() });
     }
   };
 }
