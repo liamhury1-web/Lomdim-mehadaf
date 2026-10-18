@@ -1,0 +1,27 @@
+name: check-app
+on:
+  workflow_run:
+    workflows: [apply-update]
+    types: [completed]
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - name: Wait for the new version to be live
+        run: |
+          want=$(grep -o "lomdim-v[0-9]*" sw.js | head -1)
+          for i in $(seq 1 40); do
+            got=$(curl -s https://lomdim-mehadaf.vercel.app/sw.js | grep -o "lomdim-v[0-9]*" | head -1)
+            [ "$got" = "$want" ] && echo "live: $got" && exit 0
+            sleep 15
+          done
+          echo "the site did not update to $want"; exit 1
+      - name: Check the whole app
+        run: |
+          [ -f tests/smoke.mjs ] || { echo "no tests yet"; exit 0; }
+          npm i --no-save playwright@1.56.0
+          npx playwright install --with-deps chromium
+          BASE=https://lomdim-mehadaf.vercel.app node tests/smoke.mjs
