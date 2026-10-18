@@ -20,7 +20,7 @@ await step('שרת: מסד הנתונים מחובר (1 על 1, קישורים)'
   if (LIVE && !d.ok) throw new Error(JSON.stringify(d));
 });
 await step('שרת: הקבצים הראשיים נטענים', async () => {
-  for (const f of ['/', '/app.js', '/style.css', '/sw.js', '/manifest.webmanifest']) { const r = await fetch(BASE + f); if (!r.ok) throw new Error(f + ' ' + r.status); }
+  for (const f of ['/', '/app.js', '/style.css', '/sw.js', '/manifest.webmanifest', '/robots.txt', '/sitemap.xml', '/og.jpg']) { const r = await fetch(BASE + f); if (!r.ok) throw new Error(f + ' ' + r.status); }
 });
 
 const browser = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});

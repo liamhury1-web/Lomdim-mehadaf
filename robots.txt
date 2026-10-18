@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Sitemap: https://lomdim-mehadaf.vercel.app/sitemap.xml
