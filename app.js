@@ -130,7 +130,7 @@ function speakLocal(text, lang){
   } catch(e){ return Promise.resolve(); }
 }
 let player = null, speakSeq = 0, ttsFails = 0;
-function stopSpeech(){ speakSeq++; try { speechSynthesis.cancel(); } catch(e){} if (player) { try { player.pause(); } catch(e){} player = null; } }
+function stopSpeech(){ speakSeq++; try { speechSynthesis.cancel(); } catch(e){} if (player) { try { player.pause(); player.onended && player.onended(); } catch(e){} player = null; } document.querySelectorAll('[data-say].busy').forEach(b => b.classList.remove('busy')); }
 function chunksOf(text){
   const out = []; let cur = '';
   for (const piece of String(text).replace(/([.!?…؟。\n])\s+/g, '$1\u0001').split('\u0001')) {
@@ -146,7 +146,7 @@ async function ttsBlob(text, lang){
   let cache = null;
   try { cache = await caches.open('lomdim-tts2'); const hit = await cache.match(key); if (hit) return await hit.blob(); } catch(e){}
   if (ttsFails >= 3 || navigator.onLine === false) return null;
-  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 15000);
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), text.length < 60 ? 5000 : 9000);
   try {
     const r = await fetch('/api/tts', { method: 'POST', signal: ctl.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, lang }) });
     if (!r.ok) { ttsFails++; return null; }
@@ -155,18 +155,30 @@ async function ttsBlob(text, lang){
     return blob;
   } catch(e) { ttsFails++; return null; } finally { clearTimeout(t); }
 }
+// one audio element for the whole app: it is "unlocked" inside the tap itself, so phones let it play
+// even when the sound arrives from the server a moment later
+const SILENT = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
+let audioEl = null;
+function unlockAudio(){
+  try {
+    if (!audioEl) { audioEl = new Audio(); audioEl.preload = 'auto'; }
+    if (!audioEl.dataset.ok) { audioEl.src = SILENT; const p = audioEl.play(); if (p && p.then) p.then(() => { audioEl.dataset.ok = '1'; }).catch(() => {}); }
+  } catch(e){}
+}
 function playBlob(blob){
   return new Promise(res => {
-    const url = URL.createObjectURL(blob), a = new Audio(url); player = a;
-    const done = ok => { URL.revokeObjectURL(url); res(ok); };
+    if (!audioEl) audioEl = new Audio();
+    const url = URL.createObjectURL(blob), a = audioEl; player = a;
+    let fin = false; const done = ok => { if (fin) return; fin = true; a.onended = a.onerror = null; URL.revokeObjectURL(url); res(ok); };
     a.onended = () => done(true); a.onerror = () => done(false);
-    a.play().catch(() => done(false));
+    a.src = url;
+    const p = a.play(); if (p && p.catch) p.catch(() => done(false));
   });
 }
 async function speak(text, lang){
   if (!canSpeak || !String(text).trim()) return;
   ttsUsed = true;
-  stopSpeech(); const my = speakSeq;
+  speakSeq++; try { speechSynthesis.cancel(); } catch(e){} if (player) { try { player.pause(); } catch(e){} } const my = speakSeq;
   lang = guessLang(text, lang);
   const parts = chunksOf(text);
   let next = ttsBlob(parts[0], lang);
@@ -179,7 +191,16 @@ async function speak(text, lang){
   }
 }
 const sayBtn = (text, lang, cls = 'iconbtn') => canSpeak ? `<button class="${cls} say" type="button" data-say="${esc(text)}" data-lang="${esc(lang || '')}" aria-label="השמע">${I.say}</button>` : '';
-document.addEventListener('click', e => { const b = e.target.closest('[data-say]'); if (b) { e.stopPropagation(); b.classList.add('busy'); speak(b.dataset.say, b.dataset.lang).finally(() => b.classList.remove('busy')); } }, true);
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-say]'); if (!b) return;
+  e.stopPropagation(); e.preventDefault();
+  if (b.classList.contains('busy')) return stopSpeech();
+  unlockAudio(); try { speechSynthesis.resume(); } catch(err){}
+  stopSpeech(); b.classList.add('busy'); b.setAttribute('aria-label', 'עצור');
+  speak(b.dataset.say, b.dataset.lang).finally(() => { b.classList.remove('busy'); b.setAttribute('aria-label', 'השמע'); });
+}, true);
+// any first tap anywhere unlocks sound for the automatic readings (dictation)
+document.addEventListener('pointerdown', () => unlockAudio(), { once: true, capture: true });
 
 /* ---------------- storage (on this device) ---------------- */
 const LKEY = 'lomdim_sets_v1', CODEKEY = 'lomdim_access_code';
@@ -1541,7 +1562,7 @@ function modeBalloon(s){
       <div class="balloonbox" data-c="${i % 6}">${state === 'lost' ? '<div class="pop">💥</div>' : balloonSvg(MAX - miss, MAX)}${mascot(state === 'won' ? 'happy' : state === 'lost' ? '' : 'think', mascotKind(s))}</div>
       <div class="panel stack center"><span class="eyebrow">איזו מילה זו?</span><p class="q" dir="auto">${esc(it.c.d)}</p></div>
       <div class="slots ${state === 'won' ? 'ok' : state === 'lost' ? 'no' : ''}" dir="auto">${[...w].map(ch => /\p{L}/u.test(ch) ? `<span class="slot">${guessed.has(ch.toLowerCase()) || state === 'lost' ? esc(ch) : ''}</span>` : `<span class="gap">${ch === ' ' ? '&nbsp;' : esc(ch)}</span>`).join('')}</div>
-      ${state ? `<button class="btn primary wide big" data-x="next">${i + 1 < items.length ? 'למילה הבאה' : 'לתוצאה'}</button>`
+      ${state ? `${sayBtn(w, s.termLang, 'btn ghost')}<button class="btn primary wide big" data-x="next">${i + 1 < items.length ? 'למילה הבאה' : 'לתוצאה'}</button>`
         : `<div class="letters" dir="auto">${kb.map(ch => `<button class="letter ${guessed.has(ch) ? (low.includes(ch) ? 'used good' : 'used bad') : ''}" data-l="${esc(ch)}" ${guessed.has(ch) ? 'disabled' : ''}>${esc(ch)}</button>`).join('')}</div>
         <p class="small muted center">נשארו ${MAX - miss} ניסיונות</p>`}`;
     if (!state && done) finish(true);
@@ -1550,7 +1571,6 @@ function modeBalloon(s){
     const it = items[i];
     if (won) saved++;
     srsMark(s, it.c.id, won && miss <= 2); award(won); saveSoon(s);
-    if (won) speak(it.w, s.termLang);
     draw(won ? 'won' : 'lost');
   }
   setup();
@@ -1622,7 +1642,7 @@ function modeSentence(s){
     // a sentence can have more than one right order; wait a moment for the list of them if it is still coming
     if (got !== norm(it.t) && !((s.sentInfo || {})[it.t]) && jobs.has(s.id + ':sents')) { try { await jobs.get(s.id + ':sents'); } catch(e){} }
     const alts = (((s.sentInfo || {})[it.t]) || {}).alts || [];
-    if (got === norm(it.t) || alts.some(a => norm(a) === got)) { done = true; if (!tries) firstTry++; award(true); speak(line.map(x => x.w).join(' '), it.lang); return draw('ok'); }
+    if (got === norm(it.t) || alts.some(a => norm(a) === got)) { done = true; if (!tries) firstTry++; award(true); return draw('ok'); }
     tries++; award(false); draw('no'); app.querySelector('.sline').classList.add('shake');
   }
   setup();

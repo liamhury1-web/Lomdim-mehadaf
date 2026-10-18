@@ -125,6 +125,21 @@ await step('סיפור חדש: אורך והערות נשלחים', async () => 
   if (!sent || sent.lines !== 5 || !/כדורגל/.test(sent.idea)) throw new Error(JSON.stringify(sent));
   await quit();
 });
+await step('רמקול: לחיצה משמיעה, לחיצה נוספת עוצרת', async () => {
+  const rate = 8000, n = rate * 3, buf = Buffer.alloc(44 + n * 2);
+  buf.write('RIFF', 0); buf.writeUInt32LE(36 + n * 2, 4); buf.write('WAVE', 8); buf.write('fmt ', 12); buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22);
+  buf.writeUInt32LE(rate, 24); buf.writeUInt32LE(rate * 2, 28); buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34); buf.write('data', 36); buf.writeUInt32LE(n * 2, 40);
+  for (let i = 0; i < n; i++) buf.writeInt16LE(Math.round(3000 * Math.sin(i / 8)), 44 + i * 2);
+  await pg.unroute('**/api/tts'); await pg.route('**/api/tts', r => r.fulfill({ status: 200, contentType: 'audio/wav', body: buf }));
+  await pg.goto(BASE + '/'); await pg.evaluate(s => localStorage.setItem('lomdim_sets_v1', s), JSON.stringify([SET]));
+  await openSet(); await pg.click('.modes [data-mode=flash]'); await pg.waitForSelector('.face [data-say]');
+  await pg.click('.face [data-say]'); await pg.waitForTimeout(700);
+  const playing = await pg.evaluate(() => { const b = document.querySelector('.face [data-say]'); return b.classList.contains('busy'); });
+  if (!playing) throw new Error('לא התחיל לנגן');
+  await pg.click('.face [data-say]'); await pg.waitForTimeout(300);
+  if (await pg.evaluate(() => document.querySelector('.face [data-say]').classList.contains('busy'))) throw new Error('לא עצר');
+  await pg.unroute('**/api/tts'); await pg.route('**/api/tts', r => r.fulfill({ status: 503, body: '{}' })); await quit();
+});
 await step('גודל טקסט: מגדילים, נשמר, וחוזרים ל-100%', async () => {
   await pg.goto(BASE + '/'); await pg.click('#zbtn'); await pg.click('[data-z="1"]'); await pg.click('[data-z="1"]');
   if ((await pg.innerText('#zval')).trim() !== '130%') throw new Error(await pg.innerText('#zval'));

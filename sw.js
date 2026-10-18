@@ -1,5 +1,5 @@
 // Keeps the app working offline: the app files are cached, the server call always goes to the network.
-const CACHE = 'lomdim-v38';
+const CACHE = 'lomdim-v39';
 const SHELL = ['/', '/index.html', '/style.css', '/app.js', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', e => {
