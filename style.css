@@ -479,3 +479,12 @@ details.more summary{color:var(--fg)}
 .sech{font-size:17px;margin:10px 2px 0}
 .modes > .mode:last-child:nth-child(odd){grid-column:1 / -1}
 .extras{gap:10px;margin-top:6px}
+/* text size button (every page) */
+.zoom{position:fixed;inset-inline-end:12px;bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:45;display:flex;align-items:center;gap:8px;flex-direction:row-reverse}
+.zbtn{width:44px;height:44px;border-radius:50%;border:1.5px solid var(--line);background:var(--card);color:var(--fg);font:800 16px/1 Assistant,system-ui,sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.18);cursor:pointer;opacity:.9}
+.zpanel{display:flex;gap:4px;background:var(--card);border:1.5px solid var(--line);border-radius:999px;padding:4px;box-shadow:0 6px 18px rgba(0,0,0,.2)}
+.zpanel[hidden]{display:none}
+.zpanel button{min-width:44px;height:38px;border:0;border-radius:999px;background:transparent;color:var(--fg);font:800 16px/1 Assistant,system-ui,sans-serif;cursor:pointer}
+.zpanel .zval{min-width:64px;background:color-mix(in srgb,var(--fg) 8%,transparent)}
+body:has(#field) .zoom{display:none}
+body:has(.toast:not([hidden])) .zoom{bottom:calc(70px + env(safe-area-inset-bottom,0px))}

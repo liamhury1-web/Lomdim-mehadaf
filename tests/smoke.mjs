@@ -114,6 +114,13 @@ await step('1 על 1 על נושא אקראי מהמסך הראשי', async () =
   await pg.goto(BASE + '/'); const n = await pg.evaluate(() => (JSON.parse(localStorage.getItem('lomdim_sets_v1') || '[]')).length); if (n) throw new Error('נשמר סט מיותר');
 });
 
+await step('גודל טקסט: מגדילים, נשמר, וחוזרים ל-100%', async () => {
+  await pg.goto(BASE + '/'); await pg.click('#zbtn'); await pg.click('[data-z="1"]'); await pg.click('[data-z="1"]');
+  if ((await pg.innerText('#zval')).trim() !== '130%') throw new Error(await pg.innerText('#zval'));
+  await pg.reload(); const z = await pg.evaluate(() => document.getElementById('app').style.zoom); if (z !== '1.3') throw new Error('zoom=' + z);
+  await pg.click('#zbtn'); await pg.click('[data-z="0"]'); if (await pg.evaluate(() => document.getElementById('app').style.zoom)) throw new Error('לא חזר');
+});
+
 check(errs.length === 0, 'אין שגיאות קוד בדף', errs.slice(0, 3).join(' | '));
 await browser.close();
 console.log(`\n${passes.length} עברו, ${fails.length} נכשלו`);

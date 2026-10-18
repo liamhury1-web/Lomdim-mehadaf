@@ -1,6 +1,24 @@
 (function(){
 'use strict';
 const app = document.getElementById('app');
+/* text size for every page: one button, steps in percent, remembered on this phone */
+const ZOOMS = [80, 90, 100, 115, 130, 150, 175, 200];
+function applyZoom(z){
+  z = ZOOMS.includes(z) ? z : 100;
+  app.style.zoom = z === 100 ? '' : String(z / 100);
+  const v = document.getElementById('zval'); if (v) v.textContent = z + '%';
+  try { localStorage.setItem('lomdim_zoom', String(z)); } catch(e){}
+  return z;
+}
+let zoomNow = 100; try { zoomNow = Number(localStorage.getItem('lomdim_zoom')) || 100; } catch(e){}
+zoomNow = applyZoom(zoomNow);
+(function(){
+  const btn = document.getElementById('zbtn'), panel = document.getElementById('zpanel'); if (!btn) return;
+  btn.onclick = () => { panel.hidden = !panel.hidden; btn.setAttribute('aria-expanded', String(!panel.hidden)); };
+  panel.onclick = e => { const b = e.target.closest('[data-z]'); if (!b) return; const d = Number(b.dataset.z);
+    const i = ZOOMS.indexOf(zoomNow); zoomNow = applyZoom(d === 0 ? 100 : ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, i + d))]); };
+  document.addEventListener('click', e => { if (!panel.hidden && !e.target.closest('#zoom')) { panel.hidden = true; btn.setAttribute('aria-expanded', 'false'); } });
+})();
 
 /* ---------------- helpers ---------------- */
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
