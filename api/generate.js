@@ -5,6 +5,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
 
 const READING = `Reading passages, with comprehension questions (grade 1-2: 3-4 questions, otherwise 4-6).
 Make them like real reading material: model each passage on the texts found in Israeli school textbooks, graded readers and learner websites for that grade and language (for English: the Israeli Ministry of Education curriculum and the CEFR level below). Facts (science, animals, places, history, sport) must be true; check them with Google Search when it is available. Write an original passage in that style; never copy a published text.
+Mix the question types (not all multiple choice): about half multiple choice; one or two true/false statements, written as a multiple-choice question with exactly two options ("True"/"False" in the passage language, "נכון"/"לא נכון" for Hebrew); and one or two short open questions (grade 1-2: one, very easy) answered in a few words straight from the text, written as {"q":"","open":true,"answer_text":"the expected answer, short","explain":""}. Open-question answers are in the passage language.
 Questions must be good and easy: short, clear wording; most questions are answered directly by one sentence of the passage, asked in the order of the text; from grade 7 at most one inference or word-meaning question; exactly one correct option; wrong options are plausible but clearly wrong according to the text; no trick questions, no "all of the above".
 - For a foreign language (English, French, Arabic...): "instructions", every question "q" and every option are in the target language; options have no translation. After the instructions and after each question add the Hebrew translation in parentheses, e.g. "Who found the dog? (מי מצא את הכלב?)". "explain" in Hebrew.
 - For Hebrew or other school subjects: all in Hebrew.
@@ -32,6 +33,7 @@ Multiple-choice questions (mcq and reading), in every subject:
 - Nothing may give the answer away: options never contain translations, hints or anything in parentheses (write "five", never "five (חמש)"); the question never contains the answer or a translation of it; in the Hebrew translation of a question keep the tested word as it is, untranslated.
 - All options are the same kind of thing, in the same language and of similar length; wrong options are plausible (typical mistakes, words from the same topic), never silly; no "all/none of the above".
 - Vary the position of the correct answer.
+Picture answers: when the answer is naturally something you see (flags, animals, fruits and vegetables, shapes, famous places or buildings, objects, body parts), make some of the mcq questions (about a third, only if it fits the topic) with picture options, written exactly as "[flag:xx]" (ISO 3166-1 alpha-2 code in lowercase, e.g. [flag:fr]), "[emoji:🦁]" (one emoji that clearly shows the thing) or "[wiki:Exact English Wikipedia article title]" (for places, buildings, species, artworks that have no emoji). All options of such a question are pictures of the same kind; the question asks in words (e.g. "איזה מהדגלים הוא הדגל של צרפת?") and never names a picture option. "explain" uses names, never the codes.
 Math, physics and chemistry: every question must have exactly one correct option. Solve each one step by step before writing it, double-check the arithmetic, and put the short solution steps in "explain". Wrong options should come from typical mistakes.
 Reply ONLY JSON:
 {"title":"Hebrew topic, max 40 chars","termLang":"en","defLang":"he","alphabet":false,
@@ -39,7 +41,7 @@ Reply ONLY JSON:
 "mcq":[{"q":"","options":["","","",""],"answer":0,"explain":""}],
 "scramble":[{"word":"","hint":""}],
 "topics":[{"name":"Hebrew topic","query":"YouTube search"}],
-"reading":[{"title":"","lang":"BCP-47 of the text","instructions":"","text":"passage, paragraphs split by \\n","questions":[{"q":"","options":["","","",""],"answer":0,"explain":""}]}]}
+"reading":[{"title":"","lang":"BCP-47 of the text","instructions":"","text":"passage, paragraphs split by \\n","questions":[{"q":"","options":["","","",""],"answer":0,"explain":""},{"q":"","open":true,"answer_text":"","explain":""}]}]}
 cards 6-25, mcq 6-12, scramble up to 10 single words of 3-12 letters, topics 2-3. Keep every text short. (The lesson is made separately, do not write one.) reading: [] unless asked for a reading passage or the material is itself a reading passage.
 Never write Hebrew nikud yourself (it is added afterwards by a professional vocalizer). Arabic study words and sentences: full tashkeel up to grade 10.
 ${READING}alphabet true only if the material teaches letters.`;
@@ -186,7 +188,7 @@ export default async function handler(req, res) {
     parts.push({ text: `A Hebrew-speaking student answered a quiz question wrong. Explain briefly in Hebrew (2-4 short sentences) why the correct answer is right and why their choice is wrong. For math or science, show the short solution steps (Unicode symbols, no LaTeX). Be encouraging.
 Question: ${q}
 Options: ${opts.join(' | ')}
-Correct answer: ${String(b.correct || '').slice(0, 300)}
+Correct answer: ${String(b.correct || '').slice(0, 300)}\n(An option like [flag:fr] is a picture of the flag of that country code, [emoji:🦁] a picture of that emoji, [wiki:Title] a photo of that Wikipedia subject; in your explanation use their names, never the codes.)
 Student chose: ${String(b.chosen || '').slice(0, 300)}
 Reply ONLY JSON: {"explain":"..."}` });
   } else if (b.mode === 'story') {
@@ -203,7 +205,7 @@ ${avoid.length ? 'It must be clearly different (topic, characters, setting) from
 ${words ? 'If it fits naturally, use a few of these words the student is learning: ' + words : ''}
 Give it a short title in the passage language${lang === 'he' ? '' : ' with the Hebrew translation in parentheses'}.
 ${READING}
-Reply ONLY JSON: {"reading":[{"title":"","lang":"${lang}","instructions":"","text":"paragraphs split by \\n","questions":[{"q":"","options":["","","",""],"answer":0,"explain":""}]}]}` });
+Reply ONLY JSON: {"reading":[{"title":"","lang":"${lang}","instructions":"","text":"paragraphs split by \\n","questions":[{"q":"","options":["","","",""],"answer":0,"explain":""},{"q":"","open":true,"answer_text":"","explain":""}]}]}` });
   } else if (b.mode === 'sents') {
     const list = (Array.isArray(b.sentences) ? b.sentences : []).slice(0, 20).map(x => String(x).slice(0, 200)).filter(Boolean);
     if (!list.length) return res.status(400).json({ code: 'bad_request' });
@@ -228,6 +230,20 @@ Keys: the word in lowercase, exactly as written in the text, without punctuation
     parts.push({ text: `A Hebrew-speaking student reading a ${LANG_NAMES[String(b.lang || '').slice(0, 2)] || ''} text tapped the word "${w}" in this sentence: "${ctx}".
 Give its Hebrew translation as used in this sentence (1-4 words), and its dictionary form in the original language (e.g. infinitive or singular).
 Reply ONLY JSON: {"tr":"","base":""}` });
+  } else if (b.mode === 'grade') {
+    const q = String(b.q || '').slice(0, 400), ans = String(b.ans || '').slice(0, 300), mine = String(b.mine || '').slice(0, 400), text = String(b.text || '').slice(0, 5000);
+    if (!q || !mine) return res.status(400).json({ code: 'bad_request' });
+    parts.push({ text: `A student answered an open comprehension question about this passage.
+Passage:
+"""
+${text}
+"""
+Question: ${q}
+Expected answer: ${ans}
+Student's answer: ${mine}
+Decide if the student's answer is correct in meaning according to the passage. Be fair and kind: accept other wording, synonyms, short answers, small spelling or grammar mistakes, and answers in Hebrew. It is wrong only if the meaning is wrong, missing the key point, or not about the question.
+"note": one short, encouraging sentence in Hebrew (if wrong: what was missing, without scolding).
+Reply ONLY JSON: {"ok":true,"note":""}` });
   } else if (b.mode === 'trivia') {
     const topic = String(b.topic || '').slice(0, 120).trim();
     if (!topic) return res.status(400).json({ code: 'bad_request' });
@@ -236,6 +252,7 @@ Reply ONLY JSON: {"tr":"","base":""}` });
 - Only well-known facts that are certainly true; if unsure about a fact, do not use it. Never invent.
 - 4 short options each, one clearly correct, the others plausible but clearly wrong. No "all of the above", no hints, no parentheses, no answer that appears in the question.
 - "explain": one short Hebrew sentence why the answer is right.
+- Picture answers: when the answer is naturally something you see (flags, animals, fruits and vegetables, shapes, famous places or buildings, objects, body parts), make some of the mcq questions (about a third, only if it fits the topic) with picture options, written exactly as "[flag:xx]" (ISO 3166-1 alpha-2 code in lowercase, e.g. [flag:fr]), "[emoji:🦁]" (one emoji that clearly shows the thing) or "[wiki:Exact English Wikipedia article title]" (for places, buildings, species, artworks that have no emoji). All options of such a question are pictures of the same kind; the question asks in words (e.g. "איזה מהדגלים הוא הדגל של צרפת?") and never names a picture option. "explain" uses names, never the codes.
 - "title": a short Hebrew title for the topic (2-4 words).
 If the topic is gibberish, offensive, or not something a quiz can be about, reply {"unclear":true}.
 Reply ONLY JSON: {"title":"","mcq":[{"q":"","options":["","","",""],"answer":0,"explain":""}]}` });
@@ -353,8 +370,8 @@ Reply ONLY JSON: {"questions":[{"id":"","answer":0}],"cards":[{"id":"","pick":"o
   }
 
   let result;
-  const maxOut = b.mode === 'word' ? 300 : b.mode === 'explain' ? 600 : b.mode === 'gloss' || b.mode === 'sents' ? 6000 : story ? 6000 : 8192;
-  try { result = await ask(parts, grounded, maxOut, b.mode === 'word' || b.mode === 'gloss' || b.mode === 'explain' ? 0 : b.mode === 'sents' ? 512 : 1024); }
+  const maxOut = b.mode === 'word' || b.mode === 'grade' ? 300 : b.mode === 'explain' ? 600 : b.mode === 'gloss' || b.mode === 'sents' ? 6000 : story ? 6000 : 8192;
+  try { result = await ask(parts, grounded, maxOut, b.mode === 'word' || b.mode === 'gloss' || b.mode === 'explain' || b.mode === 'grade' ? 0 : b.mode === 'sents' ? 512 : 1024); }
   catch (e) {
     let ok = false;
     for (const [key, fn] of [[GROQ_KEY, askGroq], [CLAUDE_KEY, askClaude], [OPENAI_KEY, askOpenAI]]) {

@@ -140,6 +140,44 @@ await step('רמקול: לחיצה משמיעה, לחיצה נוספת עוצר�
   if (await pg.evaluate(() => document.querySelector('.face [data-say]').classList.contains('busy'))) throw new Error('לא עצר');
   await pg.unroute('**/api/tts'); await pg.route('**/api/tts', r => r.fulfill({ status: 503, body: '{}' })); await quit();
 });
+await step('קטע קריאה: שאלה פתוחה נבדקת, ובלי בודק אפשר לבדוק לבד', async () => {
+  const R = { ...SET, id: 't9', reading: [{ id: 'r9', title: 'Dan', lang: 'en', text: SET.reading[0].text, q: [
+    { q: 'Is the dog brown?', o: ['True', 'False'], a: 0, x: '' },
+    { q: 'Where do they walk?', o: [], a: -1, open: true, ans: 'to the park', x: '' },
+    { q: 'What does the dog like?', o: [], a: -1, open: true, ans: 'to run after birds', x: '' }] }] };
+  await pg.goto(BASE + '/'); await pg.evaluate(s => localStorage.setItem('lomdim_sets_v1', s), JSON.stringify([R])); await pg.reload();
+  const gh = async r => { let b = {}; try { b = JSON.parse(r.request().postData() || '{}'); } catch {}
+    if (b.mode === 'grade') return b.q.startsWith('Where') ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ result: { ok: true, note: 'יפה' } }) }) : r.fulfill({ status: 503, body: '{}' });
+    return r.fallback(); };
+  await pg.route('**/api/generate', gh);
+  await pg.click('[data-open="t9"]'); await pg.waitForSelector('.settitle'); await pg.click('.modes [data-mode=read]'); await pg.waitForSelector('.openans');
+  await pg.click('[data-qi="0"] [data-o="0"]');
+  await pg.fill('[data-qi="1"] .openans', 'the park'); await pg.click('[data-qi="1"] [data-chk]'); await pg.waitForSelector('[data-qi="1"] .note.good');
+  await pg.fill('[data-qi="2"] .openans', 'birds'); await pg.click('[data-qi="2"] [data-chk]'); await pg.waitForSelector('[data-qi="2"] [data-self="1"]');
+  await pg.click('[data-qi="2"] [data-self="1"]'); await pg.waitForSelector('#rres .score');
+  const sc = (await pg.innerText('#rres .score')).trim(); if (sc !== '3/3') throw new Error('ציון ' + sc);
+  await pg.unroute('**/api/generate', gh); await quit();
+});
+await step('אמריקאיות עם תמונות: דגלים, אימוג׳י וויקיפדיה', async () => {
+  const P = { id: 'tp', title: 'דגלים', termLang: 'he', defLang: 'he', cards: [], mcq: [
+    { id: 'p1', q: 'איזה דגל הוא של צרפת?', o: ['[flag:fr]', '[flag:it]', '[flag:de]', '[flag:es]'], a: 0, x: '' },
+    { id: 'p2', q: 'איזו חיה היא האריה?', o: ['[emoji:🦁]', '[emoji:🐯]', '[emoji:🐻]', '[emoji:🐶]'], a: 0, x: '' },
+    { id: 'p3', q: 'איזה מבנה הוא מגדל אייפל?', o: ['[wiki:Eiffel Tower]', '[wiki:Big Ben]', '[wiki:Colosseum]', '[wiki:Taj Mahal]'], a: 0, x: '' }] };
+  const px = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
+  const wh = r => r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ thumbnail: { source: px } }) });
+  await pg.route('https://*.wikipedia.org/**', wh);
+  await pg.goto(BASE + '/'); await pg.evaluate(s => localStorage.setItem('lomdim_sets_v1', s), JSON.stringify([P])); await pg.reload();
+  await pg.click('[data-open="tp"]'); await pg.waitForSelector('.settitle'); await pg.click('.modes [data-mode=mcq]');
+  const seen = new Set();
+  for (let i = 0; i < 6 && !(await pg.locator('.result').count()); i++) {
+    await pg.waitForSelector('.opts.pics .opic'); const q = await pg.innerText('.q'); seen.add(q);
+    if (q.includes('אייפל')) await pg.waitForFunction(() => [...document.querySelectorAll('img[data-wiki]')].every(i => i.src), null, { timeout: 5000 });
+    if (await pg.locator('.opts.pics .opic').count() !== 4) throw new Error('לא 4 תמונות: ' + q);
+    await pg.click('[data-o="0"]'); await pg.click('[data-n]');
+  }
+  if (seen.size < 3) throw new Error('נראו ' + seen.size);
+  await pg.unroute('https://*.wikipedia.org/**', wh); await quit();
+});
 await step('גודל טקסט: מגדילים, נשמר, וחוזרים ל-100%', async () => {
   await pg.goto(BASE + '/'); await pg.click('#zbtn'); await pg.click('[data-z="1"]'); await pg.click('[data-z="1"]');
   if ((await pg.innerText('#zval')).trim() !== '130%') throw new Error(await pg.innerText('#zval'));

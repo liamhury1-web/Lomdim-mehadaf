@@ -102,6 +102,41 @@ function confetti(){
   document.body.appendChild(box); setTimeout(() => box.remove(), 3200);
 }
 
+
+/* ---------------- picture answers: "[flag:fr]", "[emoji:🦁]", "[wiki:Eiffel Tower]" ---------------- */
+const PIC_RE = /^\[(flag|emoji|wiki):([^\]]{1,80})\]$/;
+const picOf = o => { const m = String(o || '').trim().match(PIC_RE); return m ? { k: m[1], v: m[2].trim() } : null; };
+function picText(o){
+  const p = picOf(o); if (!p) return String(o);
+  if (p.k === 'flag') return /^[a-z]{2}$/i.test(p.v) ? String.fromCodePoint(...[...p.v.toUpperCase()].map(c => 0x1F1A5 + c.charCodeAt(0))) : p.v;
+  return p.v;
+}
+function optSpan(o){
+  const p = picOf(o);
+  if (!p) return `<span dir="auto">${esc(o)}</span>`;
+  if (p.k === 'flag' && /^[a-z]{2}(-[a-z]{2,3})?$/i.test(p.v)) return `<span class="opic"><img src="https://flagcdn.com/w320/${esc(p.v.toLowerCase())}.png" alt="דגל" loading="lazy" onerror="this.replaceWith(document.createTextNode('${picText(o)}'))"></span>`;
+  if (p.k === 'emoji') return `<span class="opic oemo" aria-hidden="true">${esc(p.v)}</span>`;
+  if (p.k === 'wiki') { setTimeout(loadWikiPics, 0); return `<span class="opic"><img data-wiki="${esc(p.v)}" alt="תמונה"></span>`; }
+  return `<span dir="auto">${esc(p.v)}</span>`;
+}
+const allPics = os => os.length > 1 && os.every(o => picOf(o));
+const wikiCache = (() => { try { return JSON.parse(localStorage.getItem('lomdim_wiki') || '{}') || {}; } catch(e){ return {}; } })();
+async function wikiThumb(title){
+  if (title in wikiCache) return wikiCache[title];
+  let src = '';
+  for (const host of ['en', 'he']) {
+    try { const r = await fetch(`https://${host}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title.replace(/ /g, '_'))}`); if (!r.ok) continue;
+      const d = await r.json(); src = (d.thumbnail && d.thumbnail.source) || (d.originalimage && d.originalimage.source) || ''; if (src) break; } catch(e){}
+  }
+  wikiCache[title] = src; try { localStorage.setItem('lomdim_wiki', JSON.stringify(wikiCache)); } catch(e){}
+  return src;
+}
+function loadWikiPics(){
+  document.querySelectorAll('img[data-wiki]:not([data-w])').forEach(img => {
+    img.dataset.w = '1';
+    wikiThumb(img.dataset.wiki).then(src => { if (src) img.src = src; else img.replaceWith(document.createTextNode(img.dataset.wiki)); });
+  });
+}
 /* ---------------- speech ---------------- */
 // A natural voice made on the server (Gemini text-to-speech, kept on the phone after the first time),
 // and the phone's own best voice when the server voice is not available.
@@ -263,8 +298,11 @@ function normalize(r){
     lesson: arr(o.lesson).map(x => ({ h: str(x && x.title).slice(0, 100), b: str(x && x.body).slice(0, 3000) })).filter(x => x.h && x.b),
     reading: (Array.isArray(o.reading) ? o.reading : (o.reading ? [o.reading] : [])).map(r => ({
       title: str(r && r.title).slice(0, 100), lang: str(r && r.lang).slice(0, 12), text: str(r && r.text).slice(0, 6000), instr: str(r && r.instructions).slice(0, 300),
-      q: arr(r && r.questions).map(m => { const opts = arr(m && m.options).map(str).map(cleanOpt).filter(Boolean); return { q: str(m && m.q), o: opts, a: Number(m && m.answer), x: str(m && m.explain) }; })
-        .filter(m => m.q && m.o.length >= 2 && m.o.length <= 6 && Number.isInteger(m.a) && m.a >= 0 && m.a < m.o.length)
+      q: arr(r && r.questions).map(m => {
+          const ans = str(m && (m.answer_text || (m.open && typeof m.open === 'string' ? m.open : '')));
+          if (m && m.open && ans) return { q: str(m.q), o: [], a: -1, open: true, ans: ans.slice(0, 300), x: str(m.explain) };
+          const opts = arr(m && m.options).map(str).map(cleanOpt).filter(Boolean); return { q: str(m && m.q), o: opts, a: Number(m && m.answer), x: str(m && m.explain) }; })
+        .filter(m => m.q && (m.open || (m.o.length >= 2 && m.o.length <= 6 && Number.isInteger(m.a) && m.a >= 0 && m.a < m.o.length)))
     })).filter(r => r.text.length > 40)
   };
 }
@@ -355,7 +393,7 @@ async function encodeSet(s){
   const slim = { t: s.title, tl: s.termLang, dl: s.defLang, a: s.alphabet ? 1 : 0, k: s.color,
     c: s.cards.map(c => [c.t, c.d]), q: s.mcq.map(m => [m.q, m.o, m.a, m.x]), w: s.scr.map(x => [x.w, x.h]),
     tp: s.topics.map(t => [t.name, t.q]), l: s.lesson.map(x => [x.h, x.b]),
-    r: s.reading.map(r => [r.title, r.lang, r.text, r.q.map(m => [m.q, m.o, m.a, m.x]), r.instr || '']),
+    r: s.reading.map(r => [r.title, r.lang, r.text, r.q.map(m => m.open ? [m.q, [], -1, m.x, m.ans] : [m.q, m.o, m.a, m.x]), r.instr || '']),
     ch: { n: lget('lomdim_name') || '', m: s.best.matchTime || null, t: s.best.test == null ? null : s.best.test }, f: s.folder || '' };
   const bytes = new TextEncoder().encode(JSON.stringify(slim));
   if ('CompressionStream' in window) {
@@ -385,7 +423,7 @@ function setFromSlim(o){
   mergeInto(s, normalize({
     cards: arr(o.c).map(x => ({ term: x[0], def: x[1] })), mcq: arr(o.q).map(x => ({ q: x[0], options: x[1], answer: x[2], explain: x[3] })),
     scramble: arr(o.w).map(x => ({ word: x[0], hint: x[1] })), topics: arr(o.tp).map(x => ({ name: x[0], query: x[1] })), lesson: arr(o.l).map(x => ({ title: x[0], body: x[1] })),
-    reading: arr(o.r).map(x => ({ title: x[0], lang: x[1], text: x[2], instructions: x[4] || '', questions: arr(x[3]).map(m => ({ q: m[0], options: m[1], answer: m[2], explain: m[3] })) }))
+    reading: arr(o.r).map(x => ({ title: x[0], lang: x[1], text: x[2], instructions: x[4] || '', questions: arr(x[3]).map(m => m[4] ? { q: m[0], open: true, answer_text: m[4], explain: m[3] } : { q: m[0], options: m[1], answer: m[2], explain: m[3] }) }))
   }));
   return s;
 }
@@ -640,7 +678,7 @@ function runQuiz(title, qs, back, opts){
     const q = qs[i], s = q.s; answered = false; tint(s.color);
     let body = '';
     if (q.type === 'mcq') body = `<div class="panel stack">${q.again ? '<span class="eyebrow">🔁 עוד הזדמנות לשאלה שטעית בה</span>' : ''}<div class="row" style="align-items:flex-start"><p class="q grow bi">${bi(q.q)}</p>${q.say ? sayBtn(q.q, s.termLang) : ''}</div></div>
-      <div class="opts">${q.o.map((o, j) => `<button class="opt" data-c="${OPT_C[j % 5]}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span><span dir="auto">${esc(o)}</span></button>`).join('')}</div>`;
+      <div class="opts${allPics(q.o) ? ' pics' : ''}">${q.o.map((o, j) => `<button class="opt" data-c="${OPT_C[j % 5]}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span>${optSpan(o)}</button>`).join('')}</div>`;
     else if (q.type === 'flash') body = `<div class="panel stack qflash"><span class="eyebrow">אתה יודע מה זה?</span><p class="q" dir="auto">${esc(q.c.t)}</p>${sayBtn(q.c.t, s.termLang)}
       <div id="rev" hidden><p class="explain" dir="auto">${esc(q.c.d)}</p></div>
       <button class="btn wide" type="button" data-show="1">הצג תשובה</button></div>
@@ -698,8 +736,8 @@ async function explainWhy(q, pick, set){
   const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 9000);
   try {
     const data = await callApi({ mode: 'explain', q: q.q, options: q.o, correct: right, chosen }, ctl.signal);
-    return String((data && data.result && data.result.explain) || 'התשובה הנכונה: ' + right);
-  } catch(e) { return e && e.code === 'need_code' ? 'צריך קוד גישה כדי לקבל הסבר.' : 'התשובה הנכונה: ' + right; }
+    return String((data && data.result && data.result.explain) || 'התשובה הנכונה: ' + picText(right));
+  } catch(e) { return e && e.code === 'need_code' ? 'צריך קוד גישה כדי לקבל הסבר.' : 'התשובה הנכונה: ' + picText(right); }
   finally { clearTimeout(t); }
 }
 function modeReview(s){ const ids = new Set(dueIds(s)); runQuiz('חזרה להיום', shuffle(itemsOf(s).filter(it => ids.has(it.id))).slice(0, 20).map(it => shapeQ(it)), () => viewSet(s)); }
@@ -1097,7 +1135,7 @@ async function verifySet(s, model){
   const texts = [];
   s.reading.forEach(r => {
     if (!r.id) r.id = 'r' + rid();
-    const todo = r.q.map((m, i) => ({ m, i })).filter(({ i }) => !v[r.id + '_' + i]);
+    const todo = r.q.map((m, i) => ({ m, i })).filter(({ m, i }) => !m.open && !v[r.id + '_' + i]);
     if (!todo.length) return;
     texts.push({ id: r.id, text: r.text });
     todo.forEach(({ m, i }) => qs.push({ id: r.id + '_' + i, q: m.q, o: m.o, a: m.a, ctx: r.id }));
@@ -1283,7 +1321,7 @@ function viewEditSet(s){
         <h3>מילים</h3>
         <div class="list">${w.cards.map(c => `<div class="li"><input type="text" id="t_${c.id}" value="${esc(c.t)}" dir="auto" aria-label="מילה"><input type="text" id="d_${c.id}" value="${esc(c.d)}" dir="auto" aria-label="פירוש"><button class="x" type="button" data-del="${c.id}" aria-label="מחק">×</button></div>`).join('')}
           <div class="li"><input type="text" id="t_new" placeholder="מילה חדשה" dir="auto" aria-label="מילה חדשה"><input type="text" id="d_new" placeholder="פירוש" dir="auto" aria-label="פירוש חדש"><button class="x add" type="button" data-a="addrow" aria-label="הוסף">+</button></div></div>
-        ${w.mcq.length ? `<h3>שאלות</h3><div class="list">${w.mcq.map(m => `<div class="qitem"><div dir="auto">${esc(m.q)}<br><span class="small muted" dir="auto">תשובה: ${esc(m.o[m.a])}</span></div><button class="x" type="button" data-delq="${m.id}" aria-label="מחק שאלה">×</button></div>`).join('')}</div>` : ''}
+        ${w.mcq.length ? `<h3>שאלות</h3><div class="list">${w.mcq.map(m => `<div class="qitem"><div dir="auto">${esc(m.q)}<br><span class="small muted" dir="auto">תשובה: ${esc(picText(m.o[m.a]))}</span></div><button class="x" type="button" data-delq="${m.id}" aria-label="מחק שאלה">×</button></div>`).join('')}</div>` : ''}
       </section>
       <button class="btn wide" data-a="add">${I.plus} הוסף עוד דפים או נושא</button>
       <div class="row">${knownCount(s) ? '<button class="btn ghost" data-a="reset">אפס התקדמות</button>' : ''}<span class="grow"></span><button class="btn ghost danger" data-a="del">מחק את הסט</button></div>`;
@@ -1418,7 +1456,7 @@ function modeMcq(s){
     app.innerHTML = `${topbar('אמריקאיות', (i + 1) + '/' + qs.length)}
       <div class="bar"><i style="width:${i / qs.length * 100}%"></i></div>
       <div class="panel stack">${q.again ? '<span class="eyebrow">🔁 עוד הזדמנות לשאלה שטעית בה</span>' : ''}<div class="row" style="align-items:flex-start"><p class="q grow bi">${bi(q.q)}</p>${q.say ? sayBtn(q.q, s.termLang) : ''}</div></div>
-      <div class="opts">${q.o.map((o, j) => `<button class="opt" data-c="${OPT_C[j % 5]}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span><span dir="auto">${esc(o)}</span></button>`).join('')}</div>
+      <div class="opts${allPics(q.o) ? ' pics' : ''}">${q.o.map((o, j) => `<button class="opt" data-c="${OPT_C[j % 5]}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span>${optSpan(o)}</button>`).join('')}</div>
       <div id="after"></div>`;
     answered = false;
   }
@@ -1680,7 +1718,7 @@ function modeCatch(s){
     if (i >= qs.length || lives <= 0) return end();
     const q = qs[i]; busy = false;
     document.getElementById('cq').innerHTML = bi(q.q); document.getElementById('cnt').textContent = (i + 1) + '/' + qs.length;
-    drops.innerHTML = q.o.map((o, k) => `<div class="drop" data-c="${OPT_C[(i + k) % 5]}" style="inset-inline-start:${k * 33.333}%"><span dir="auto">${esc(o)}</span></div>`).join('');
+    drops.innerHTML = q.o.map((o, k) => `<div class="drop" data-c="${OPT_C[(i + k) % 5]}" style="inset-inline-start:${k * 33.333}%">${optSpan(o)}</div>`).join('');
     y = 0; speed = 78 / Math.max(6500, Math.min(13000, 8000 + String(q.q).length * 70 + q.o.join('').length * 25) - i * 200); last = performance.now(); raf = requestAnimationFrame(tick);
   }
   function tick(t){
@@ -1969,8 +2007,9 @@ function modeRead(s, r){
       ${r.text.split(/\n+/).filter(Boolean).map((p, pi) => `<p dir="auto" data-pi="${pi}">${foreign ? tapWords(p) : esc(p)}</p>`).join('')}
     </article>
     ${r.q.length ? `<h3>שאלות הבנה</h3>` : ''}
-    <div class="stack">${r.q.map((m, i) => `<div class="panel stack" data-qi="${i}"><p class="q bi">${bi(m.q)}</p>
-      <div class="opts">${m.o.map((o, j) => `<button class="opt" data-c="${OPT_C[j % 5]}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span><span dir="auto">${esc(o)}</span></button>`).join('')}</div>
+    <div class="stack">${r.q.map((m, i) => `<div class="panel stack" data-qi="${i}"><p class="q bi">${m.open ? '<span class="qtag">✍️ שאלה פתוחה</span> ' : ''}${bi(m.q)}</p>
+      ${m.open ? `<textarea class="openans" rows="2" maxlength="400" dir="auto" placeholder="כתוב את התשובה שלך"></textarea><button class="btn primary" type="button" data-chk="${i}">בדוק</button>`
+        : `<div class="opts${allPics(m.o) ? ' pics' : ''}">${m.o.map((o, j) => `<button class="opt" data-c="${OPT_C[j % 5]}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span>${optSpan(o)}</button>`).join('')}</div>`}
       <div class="after"></div></div>`).join('')}</div>
     <div id="rres"></div>
     <div class="row"><button class="btn colored grow" data-c="5" data-a="newstory">📖 סיפור חדש</button>${s.reading.length > 1 ? `<button class="btn grow" data-a="allst">כל הסיפורים (${s.reading.length})</button>` : ''}</div>`;
@@ -1982,16 +2021,42 @@ function modeRead(s, r){
     if (e.target.closest('[data-a="allst"]')) return modeReadPick(s);
     if (e.target.closest('[data-r2]')) return modeRead(s, r);
     if (e.target.closest('[data-back]')) return viewSet(s);
+    const finishQ = ok => {
+      if (ok) right++; done++;
+      document.getElementById('cnt').textContent = done + '/' + r.q.length;
+      if (done === r.q.length) document.getElementById('rres').innerHTML = `<div class="panel result"><div class="score">${right}/${r.q.length}</div><p>תשובות נכונות</p><div class="row center"><button class="btn primary" data-r2="1">שוב</button><button class="btn" data-back="1">חזרה לסט</button></div></div>`;
+    };
+    const self = e.target.closest('[data-self]');
+    if (self) { const box = self.closest('[data-qi]'); if (!box || box.dataset.done) return; box.dataset.done = '1'; box.querySelectorAll('[data-self]').forEach(b => b.disabled = true); return finishQ(self.dataset.self === '1'); }
+    const chk = e.target.closest('[data-chk]');
+    if (chk) {
+      const box = chk.closest('[data-qi]'); if (!box || box.dataset.done || chk.disabled) return;
+      const m = r.q[+box.dataset.qi], ta = box.querySelector('.openans'), mine = ta.value.trim();
+      if (!mine) { ta.focus(); return toast('כתוב קודם תשובה'); }
+      chk.disabled = true; chk.textContent = 'בודק…'; ta.readOnly = true;
+      const after = box.querySelector('.after');
+      const model = `<p class="explain" dir="auto"><strong>תשובה לדוגמה:</strong> ${esc(m.ans)}</p>${m.x ? `<p class="small muted" dir="auto">${esc(m.x)}</p>` : ''}`;
+      const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 12000);
+      callApi({ mode: 'grade', text: r.text, lang: r.lang || '', q: m.q, ans: m.ans, mine }, ctl.signal).then(d => {
+        const g = (d && d.result) || {}; if (typeof g.ok !== 'boolean') throw 0;
+        if (box.dataset.done) return; box.dataset.done = '1'; chk.remove();
+        ta.classList.add(g.ok ? 'right' : 'wrong');
+        after.innerHTML = `<p class="note ${g.ok ? 'good' : 'bad'}" dir="auto">${g.ok ? '✅ נכון!' : '❌ לא מדויק.'} ${esc(String(g.note || '').slice(0, 300))}</p>${model}`;
+        finishQ(g.ok);
+      }).catch(() => {
+        // no checker right now: show the model answer and let the student decide
+        if (box.dataset.done) return; chk.remove();
+        after.innerHTML = `${model}<p class="small muted">התשובה שלך דומה לזו?</p><div class="row"><button class="btn grow" type="button" data-self="1">✅ כן, צדקתי</button><button class="btn grow" type="button" data-self="0">❌ לא</button></div>`;
+      }).finally(() => clearTimeout(t));
+      return;
+    }
     const o = e.target.closest('[data-o]'); if (!o) return;
     const box = o.closest('[data-qi]'); if (!box || box.dataset.done) return;
     box.dataset.done = '1';
     const m = r.q[+box.dataset.qi], pick = +o.dataset.o;
     box.querySelectorAll('.opt').forEach((b, j) => { if (j === m.a) b.classList.add('right'); else if (j === pick) b.classList.add('wrong'); b.disabled = true; });
-    if (pick === m.a) right++;
-    done++;
     if (m.x) box.querySelector('.after').innerHTML = `<p class="explain" dir="auto">${esc(m.x)}</p>`;
-    document.getElementById('cnt').textContent = done + '/' + r.q.length;
-    if (done === r.q.length) document.getElementById('rres').innerHTML = `<div class="panel result"><div class="score">${right}/${r.q.length}</div><p>תשובות נכונות</p><div class="row center"><button class="btn primary" data-r2="1">שוב</button><button class="btn" data-back="1">חזרה לסט</button></div></div>`;
+    finishQ(pick === m.a);
   };
 }
 
@@ -2228,7 +2293,7 @@ function vsPlay(g, start, oppName){
     const q = g.questions[me.idx]; locked = false; qStart = Date.now();
     main.innerHTML = `<div class="tbar"><i style="--d:${sec}s"></i></div>
       <div class="panel stack"><span class="eyebrow">שאלה ${me.idx + 1} מתוך ${n}</span><p class="q bi">${bi(q.q)}</p></div>
-      <div class="opts">${q.o.map((o, j) => `<button class="opt" data-c="${OPT_C[j % 5]}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span><span dir="auto">${esc(o)}</span></button>`).join('')}</div>
+      <div class="opts${allPics(q.o) ? ' pics' : ''}">${q.o.map((o, j) => `<button class="opt" data-c="${OPT_C[j % 5]}" data-o="${j}"><span class="k">${'אבגדהו'[j]}</span>${optSpan(o)}</button>`).join('')}</div>
       <div id="vsfb"></div>`;
     tq = setTimeout(() => answer(-1), sec * 1000);
   }

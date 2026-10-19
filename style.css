@@ -489,3 +489,18 @@ details.more summary{color:var(--fg)}
 body:has(#field) .zoom{display:none}
 body:has(.toast:not([hidden])) .zoom{bottom:calc(70px + env(safe-area-inset-bottom,0px))}
 .chips.wrap{padding:0 0 2px;max-width:none;margin:0}
+/* open questions in reading */
+.qtag{display:inline-block;font-size:12px;font-weight:800;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--c3,#ffb15c) 22%,transparent);margin-inline-end:4px;vertical-align:middle}
+.openans{width:100%;font:inherit;font-size:16px;padding:10px 12px;border-radius:12px;border:1.5px solid var(--line);background:var(--card);color:var(--fg);resize:vertical}
+.openans.right{border-color:#2e9e5b}.openans.wrong{border-color:#d9534f}
+.q .qtag{align-self:flex-start;width:max-content}
+/* picture answers */
+.opts.pics{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.opts.pics .opt{flex-direction:column;justify-content:center;align-items:center;min-height:120px;padding:12px 8px;position:relative}
+.opts.pics .opt .k{position:absolute;top:8px;inset-inline-start:8px}
+.opic{display:grid;place-items:center;width:100%}
+.opic img{max-width:100%;max-height:96px;border-radius:8px;object-fit:contain;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.opic img[data-wiki]:not([src]){width:96px;height:72px;background:color-mix(in srgb,var(--fg) 10%,transparent)}
+.oemo{font-size:56px;line-height:1.1}
+.drop .opic img{max-height:48px}.drop .oemo{font-size:34px}
+.opts.pics .opt{padding-top:34px}
